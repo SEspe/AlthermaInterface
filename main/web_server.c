@@ -109,7 +109,7 @@ static const char PAGE[] =
 "row('Channel',s.channel)+row('BSSID',s.bssid)+row('WiFi',s.wifi?'connected':'down')+"
 "row('MQTT',s.mqtt?'connected':'down')+row('Broker',s.broker)+"
 "row('Protocol',s.protocol)+row('Refrigerant',s.refrigerant)+"
-"row('Free heap',s.heap+' bytes')+row('Uptime',s.uptime+' s')+row('Firmware',s.version);"
+"row('OTA slot',s.partition)+row('Free heap',s.heap+' bytes')+row('Uptime',s.uptime+' s')+row('Firmware',s.version);"
 "var v=await (await fetch('/api/values')).json();"
 "document.getElementById('vals').innerHTML=v.values.length?v.values.map(x=>"
 "'<tr><td class=\"r\">'+esc(x.reg)+'</td><td>'+esc(x.label)+'</td><td class=\"v\">'+esc(x.value)+'</td></tr>'"
@@ -155,17 +155,23 @@ static esp_err_t status_get(httpd_req_t *req)
     alt_wifi_ip(ip, sizeof(ip));
     alt_wifi_bssid(bssid, sizeof(bssid));
 
-    char body[640];
+    // Which OTA slot is running. The bootloader logs this too, but
+    // CONFIG_BOOTLOADER_LOG_LEVEL_WARN suppresses that line, and after an OTA
+    // "did the slot actually change" is exactly the question worth answering.
+    const esp_partition_t *run = esp_ota_get_running_partition();
+
+    char body[700];
     snprintf(body, sizeof(body),
              "{\"version\":\"%s\",\"ssid\":\"%s\",\"ip\":\"%s\",\"rssi\":%d,"
              "\"channel\":%d,\"bssid\":\"%s\",\"wifi\":%s,\"mqtt\":%s,"
              "\"broker\":\"%s\",\"protocol\":\"%c\",\"refrigerant\":%d,"
-             "\"heap\":%u,\"uptime\":%lld}",
+             "\"partition\":\"%s\",\"heap\":%u,\"uptime\":%lld}",
              FIRMWARE_VERSION, alt_wifi_ssid(), ip, alt_wifi_rssi(),
              alt_wifi_channel(), bssid,
              alt_wifi_is_connected() ? "true" : "false",
              alt_mqtt_is_connected() ? "true" : "false",
              alt_settings_mqtt_uri(), converter_protocol(), converter_refrigerant(),
+             run ? run->label : "?",
              (unsigned)esp_get_free_heap_size(),
              esp_timer_get_time() / 1000000);
 
