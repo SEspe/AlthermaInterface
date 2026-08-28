@@ -1,16 +1,39 @@
 # FSD — AlthermaInterface
 
-**Version:** 0.5
-**Firmware:** 0.3.0
+**Version:** 0.7
+**Firmware:** 0.5.0
 **Target:** ESP32 (ESP32-WROOM devkit, 4 MB flash), ESP-IDF v6.0.1
 **Heat pump:** Daikin Altherma LT split hydrobox **EKHBH / EKHBX 008BA** —
-**protocol S**
+**protocol S**, ROTEX value mapping
 
 Functional Specification + change record for AlthermaInterface. This document
 is authoritative for *what the firmware must do*; `docs/PORTING.md` covers *how
 the upstream code maps onto it*, and `CLAUDE.md` covers build/verify workflow.
 
 ## Changelog
+
+- v0.7 — **Live on the heat pump; switched to the ROTEX mapping (firmware
+  0.5.0), §5, §6.** The X10A link works: `0x53`/`0x54`/`0x55`/`0x56` all reply
+  with valid CRCs and 18 of 18 labels decode.
+  `main/model_config.h` now selects `def/PROTOCOL_S_ROTEX.h` instead of
+  `def/PROTOCOL_S.h`. Both speak protocol S and poll the same registries; they
+  disagree on what `0x54` means, and the plain mapping was wrong for this
+  machine — it reported a 74 C discharge pipe with the compressor off, an
+  indoor-air sensor a hydrobox does not have, and two unrelated sensors reading
+  identically. The ROTEX mapping gives inlet 29.95 / outlet 30.41 / DHW tank
+  37.20 C, values that move between polls. Full byte-level comparison in
+  `docs/PORTING.md`; the open question from v0.2 is closed.
+  Also settles the `0x56` reply-length discrepancy in favour of upstream's code
+  over its documentation.
+
+- v0.6 — **X10A link diagnostics (firmware 0.4.0-0.4.2), §10.** The unit runs on
+  X10A power inside the enclosure with no USB, so the serial log is unavailable
+  where faults happen. Per-registry outcome, byte count, ok/fail tallies and raw
+  hex are recorded and served at `GET /api/x10a`; `POST /api/probe` sweeps both
+  protocols; `POST /api/rxcheck` re-reads the RX pin level on demand, reported
+  with when it was sampled so a stale reading cannot mislead. These found the
+  fault: RX idle LOW meant the wire was not on the pump's TX, and once corrected,
+  silence meant our TX was not connected at all.
 
 - v0.5 — **WiFi, MQTT and the web UI (firmware 0.3.0), §7, §8, §10.** Phase 3,
   plus the web UI that was scheduled for phase 6 and pulled forward.
@@ -138,8 +161,13 @@ usable on a newer machine.
 
 Reply lengths for protocol S: upstream's `get_reply_len()` returns 6 for `0x50`,
 **4** for `0x56`, 18 otherwise, while `doc/Daikin S protocol.md` states 6 for
-both `0x50` and `0x56`. The code is field-proven and wins; `0x56` is moot here
-because `PROTOCOL_S.h` never queries it.
+both. **Settled on this unit: the code is right and the doc is wrong.** `0x56`
+is polled by the ROTEX definition and answers in 4 bytes with a valid CRC.
+
+Confirmed live: only protocol-S registries ever reply. A sweep of both dialects
+(`POST /api/probe`) got answers on `0x53`/`0x54`/`0x55`/`0x56` and silence on
+every protocol-I registry. `0x50` returns `0x15 0xEA` on this machine and is not
+polled.
 
 Reference: upstream `doc/Daikin S protocol.md`, `doc/Daikin I protocol.md`.
 

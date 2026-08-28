@@ -117,11 +117,36 @@ Three consequences for the port:
    conversion at `0x50`. Set it explicitly when the converter is ported; do not
    rely on the upstream default.
 
-**Open**: `PROTOCOL_S.h` has no leaving/entering-water or DHW-tank temperature,
-while the Rotex protocol-S variant maps those at `0x54` offsets 2/4/8. Both
-definitions read the same registries, so in phase 2 dump raw `0x54` and see which
-mapping produces plausible water temperatures. Decide from the bytes, not the
-model number.
+**RESOLVED — it is the ROTEX variant.** The question was whether `PROTOCOL_S.h`
+or `PROTOCOL_S_ROTEX.h` describes this machine; both speak protocol S and poll
+the same registries but disagree about what `0x54` means. Decided from a real
+reply, as planned:
+
+```
+0x54 -> 54 fc 18 | 28 1f | b8 1f | b8 1f | 34 25 | 01 00 | 20 00 ...
+```
+
+| plain `PROTOCOL_S.h` | | ROTEX | |
+|---|---|---|---|
+| Indoor suction air | 24.98 | Refrig. liquid side | 24.98 |
+| Indoor heat exch. | 31.16 | Inlet water | 31.16 |
+| Outdoor air | 31.72 | Outlet water | 31.72 |
+| Outdoor heat exch. | 31.72 | D (unknown) | 31.72 |
+| Discharge pipe | 74.41 | DHW tank | 37.20 |
+
+The plain mapping claims a 74 C discharge pipe while `0x53` reports the
+compressor off, invents an indoor-air sensor a hydrobox does not have, and puts
+two unrelated sensors on the identical value. The ROTEX mapping gives
+inlet/outlet water 0.56 K apart and a 37 C tank, and both water temperatures
+move between polls. Corroborating: this unit has the 8-pin ROTEX-style X10A and
+answers `0x50` with `0x15 0xEA`, matching that file's "0x50 not supported" note.
+
+Two further findings from the live link:
+
+- **Protocol S confirmed by sweep.** `POST /api/probe` asked both dialects; only
+  the protocol-S registries ever replied.
+- **`0x56` replies with 4 bytes**, CRC valid — so upstream's *code* is right and
+  its `doc/Daikin S protocol.md` (which says 6) is wrong. Recorded in FSD §5.
 
 ## Open questions
 
