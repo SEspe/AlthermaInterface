@@ -21,6 +21,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "althermaserial.h"
 #include "converters.h"
 #include "mqtt.h"
 #include "settings.h"
@@ -72,7 +73,11 @@ static const char PAGE[] =
 
 "<section class='on'><table><thead><tr><th>Reg</th><th>Value</th><th class='v'>Reading</th></tr>"
 "</thead><tbody id='vals'><tr><td colspan='3'>loading...</td></tr></tbody></table>"
-"<p class='hint' id='vhint'></p></section>"
+"<p class='hint' id='vhint'></p>"
+"<h3 style='font-size:13px;color:#8b93a1;font-weight:500;margin:26px 0 8px'>X10A LINK</h3>"
+"<table><thead><tr><th>Reg</th><th>Last result</th><th>OK/fail</th><th>Raw bytes</th></tr>"
+"</thead><tbody id='diag'><tr><td colspan='4'>no queries yet</td></tr></tbody></table>"
+"</section>"
 
 "<section><table id='wifi'></table></section>"
 
@@ -116,6 +121,11 @@ static const char PAGE[] =
 ").join(''):'<tr><td colspan=\"3\">no values read yet</td></tr>';"
 "document.getElementById('vhint').textContent="
 "v.values.length+' of '+v.total+' labels have been read at least once.';"
+"var d=await (await fetch('/api/x10a')).json();"
+"document.getElementById('diag').innerHTML=d.registries.length?d.registries.map(x=>"
+"'<tr><td class=\"r\">'+esc(x.reg)+'</td><td>'+esc(x.status)+'</td><td>'+x.ok+'/'+x.fail+"
+"'</td><td class=\"r\">'+esc(x.raw||'-')+'</td></tr>'"
+").join(''):'<tr><td colspan=\"4\">no queries yet</td></tr>';"
 "}catch(e){}}"
 "async function cfg(){var c=await (await fetch('/api/config')).json();"
 "document.getElementById('uri').value=c.uri;document.getElementById('usr').value=c.user;"
@@ -204,6 +214,36 @@ static esp_err_t values_get(httpd_req_t *req)
                  first ? "" : ",", reg, label, value);
         httpd_resp_sendstr_chunk(req, chunk);
         first = false;
+    }
+
+    httpd_resp_sendstr_chunk(req, "]}");
+    return httpd_resp_sendstr_chunk(req, NULL);
+}
+
+// Per-registry link state. The unit runs off X10A power with no USB attached,
+// so this is the only way to see why a registry is not decoding.
+static esp_err_t x10a_get(httpd_req_t *req)
+{
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr_chunk(req, "{\"registries\":[");
+
+    char chunk[420];
+    size_t n = alt_diag_count();
+    for (size_t i = 0; i < n; i++) {
+        uint8_t reg = 0;
+        const char *status = "";
+        const char *hex = "";
+        int bytes = 0;
+        uint32_t ok = 0, fail = 0;
+        if (!alt_diag_at(i, &reg, &status, &hex, &bytes, &ok, &fail)) {
+            continue;
+        }
+        snprintf(chunk, sizeof(chunk),
+                 "%s{\"reg\":\"0x%02x\",\"status\":\"%s\",\"bytes\":%d,"
+                 "\"ok\":%u,\"fail\":%u,\"raw\":\"%s\"}",
+                 i ? "," : "", reg, status, bytes,
+                 (unsigned)ok, (unsigned)fail, hex);
+        httpd_resp_sendstr_chunk(req, chunk);
     }
 
     httpd_resp_sendstr_chunk(req, "]}");
@@ -367,6 +407,7 @@ esp_err_t alt_web_start(void)
         {.uri = "/",            .method = HTTP_GET,  .handler = root_get},
         {.uri = "/api/status",  .method = HTTP_GET,  .handler = status_get},
         {.uri = "/api/values",  .method = HTTP_GET,  .handler = values_get},
+        {.uri = "/api/x10a",    .method = HTTP_GET,  .handler = x10a_get},
         {.uri = "/api/config",  .method = HTTP_GET,  .handler = config_get},
         {.uri = "/api/config",  .method = HTTP_POST, .handler = config_post},
         {.uri = "/ota/upload",  .method = HTTP_POST, .handler = ota_post},

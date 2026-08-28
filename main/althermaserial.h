@@ -30,3 +30,20 @@ uint8_t alt_crc(const uint8_t *src, size_t len);
 
 // Formats up to `len` bytes as "0x00 0x01 ..." into out (for logging).
 void alt_format_buffer(const uint8_t *buf, size_t len, char *out, size_t out_len);
+
+// ---- link diagnostics -------------------------------------------------
+// The unit runs off X10A's 5 V inside an enclosure, with no USB attached, so
+// the serial log is not available where it matters. Every query records its
+// outcome here instead, and the web UI reads it back over WiFi.
+
+#define ALT_DIAG_MAX 8
+
+// Reads back the last outcome for the i-th registry queried since boot.
+// `status` is a short human-readable result ("ok", "timeout: no bytes", ...)
+// and `hex` the raw bytes received, both pointing at internal storage.
+// Returns false when i is past the number of registries seen.
+bool alt_diag_at(size_t i, uint8_t *reg_id, const char **status,
+                 const char **hex, int *bytes, uint32_t *ok_count,
+                 uint32_t *fail_count);
+
+size_t alt_diag_count(void);

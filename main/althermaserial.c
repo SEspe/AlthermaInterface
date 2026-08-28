@@ -17,6 +17,85 @@
 
 static const char *TAG = "x10a";
 
+// ---- link diagnostics, readable over HTTP (see althermaserial.h) --------
+
+typedef struct {
+    uint8_t  reg_id;
+    bool     used;
+    char     status[64];
+    char     hex[ALT_REPLY_MAX * 5 + 1];
+    int      bytes;
+    uint32_t ok_count;
+    uint32_t fail_count;
+} alt_diag_t;
+
+static alt_diag_t s_diag[ALT_DIAG_MAX];
+
+static alt_diag_t *diag_for(uint8_t reg_id)
+{
+    for (size_t i = 0; i < ALT_DIAG_MAX; i++) {
+        if (s_diag[i].used && s_diag[i].reg_id == reg_id) {
+            return &s_diag[i];
+        }
+    }
+    for (size_t i = 0; i < ALT_DIAG_MAX; i++) {
+        if (!s_diag[i].used) {
+            s_diag[i].used = true;
+            s_diag[i].reg_id = reg_id;
+            return &s_diag[i];
+        }
+    }
+    return NULL;
+}
+
+static void diag_record(uint8_t reg_id, const char *status, const uint8_t *buf,
+                        int len, bool ok)
+{
+    alt_diag_t *d = diag_for(reg_id);
+    if (!d) {
+        return;
+    }
+    strlcpy(d->status, status, sizeof(d->status));
+    d->bytes = len;
+    if (len > 0) {
+        alt_format_buffer(buf, (size_t)len, d->hex, sizeof(d->hex));
+    } else {
+        d->hex[0] = '\0';
+    }
+    if (ok) {
+        d->ok_count++;
+    } else {
+        d->fail_count++;
+    }
+}
+
+size_t alt_diag_count(void)
+{
+    size_t n = 0;
+    for (size_t i = 0; i < ALT_DIAG_MAX; i++) {
+        if (s_diag[i].used) {
+            n++;
+        }
+    }
+    return n;
+}
+
+bool alt_diag_at(size_t i, uint8_t *reg_id, const char **status,
+                 const char **hex, int *bytes, uint32_t *ok_count,
+                 uint32_t *fail_count)
+{
+    if (i >= ALT_DIAG_MAX || !s_diag[i].used) {
+        return false;
+    }
+    if (reg_id)     *reg_id     = s_diag[i].reg_id;
+    if (status)     *status     = s_diag[i].status;
+    if (hex)        *hex        = s_diag[i].hex;
+    if (bytes)      *bytes      = s_diag[i].bytes;
+    if (ok_count)   *ok_count   = s_diag[i].ok_count;
+    if (fail_count) *fail_count = s_diag[i].fail_count;
+    return true;
+}
+
 uint8_t alt_crc(const uint8_t *src, size_t len)
 {
     uint8_t b = 0;
@@ -136,19 +215,24 @@ int alt_query_registry(uint8_t reg_id, uint8_t *buf, char protocol)
         // Error reply, common to both protocols.
         if (len == 2 && buf[0] == 0x15 && buf[1] == 0xea) {
             ESP_LOGW(TAG, "reg 0x%02x: HP returned 0x15 0xEA (command not understood)", reg_id);
+            diag_record(reg_id, "HP error 0x15 0xEA", buf, len, false);
             vTaskDelay(pdMS_TO_TICKS(500));
             return -1;
         }
     }
 
     if (len < reply_len) {
+        char status[64];
         if (len == 0) {
             ESP_LOGW(TAG, "reg 0x%02x: timeout, no bytes. Check wiring/pins.", reg_id);
+            strlcpy(status, "timeout: no bytes", sizeof(status));
         } else {
             alt_format_buffer(buf, len, hex, sizeof(hex));
             ESP_LOGW(TAG, "reg 0x%02x: timeout, got %d/%d bytes: %s",
                      reg_id, len, reply_len, hex);
+            snprintf(status, sizeof(status), "timeout: %d of %d bytes", len, reply_len);
         }
+        diag_record(reg_id, status, buf, len, false);
         vTaskDelay(pdMS_TO_TICKS(500));
         return -1;
     }
@@ -159,9 +243,14 @@ int alt_query_registry(uint8_t reg_id, uint8_t *buf, char protocol)
     if (want != buf[len - 1]) {
         ESP_LOGW(TAG, "reg 0x%02x: bad CRC, calculated 0x%02x but got 0x%02x: %s",
                  reg_id, want, buf[len - 1], hex);
+        char status[64];
+        snprintf(status, sizeof(status), "bad CRC: want 0x%02x got 0x%02x",
+                 want, buf[len - 1]);
+        diag_record(reg_id, status, buf, len, false);
         return -1;
     }
 
     ESP_LOGI(TAG, "reg 0x%02x: %s (CRC OK)", reg_id, hex);
+    diag_record(reg_id, "ok", buf, len, true);
     return len;
 }
