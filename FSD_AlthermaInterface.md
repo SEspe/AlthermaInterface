@@ -8,7 +8,7 @@
 
 Functional Specification + change record for AlthermaInterface. This document
 is authoritative for *what the firmware must do*; `docs/PORTING.md` covers *how
-the upstream code maps onto it*, and `CLAUDE.md` covers build/verify workflow.
+the upstream code maps onto it*.
 
 ## Changelog
 

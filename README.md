@@ -99,7 +99,8 @@ $env:IDF_PATH = "D:\esp\v6.0.1\esp-idf"
 & $py "$env:IDF_PATH\tools\idf.py" build
 ```
 
-See `CLAUDE.md` for the full build/flash/verify workflow.
+Then flash over USB, or upload `build/AlthermaInterface.bin` from the device's
+OTA tab.
 
 ## License
 
