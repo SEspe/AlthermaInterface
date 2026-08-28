@@ -79,13 +79,62 @@ Pinned at upstream commit `4e518ec` (2026-07-24) for this port.
 
 ## Hardware
 
-Same wiring as upstream — an ESP32 on the heat pump's X10A connector:
+An ESP32 wired to the heat pump's **X10A** service connector — four wires: 5 V,
+GND, and the two data lines.
 
-- `GPIO16` ← X10A **TX**, `GPIO15` → X10A **RX**, 9600 8E1 (`main/board_config.h`)
-  — note this differs from upstream's 16/17 default
-- optional dry contacts: thermostat, Smart Grid (SG1/SG2), safety relay
-- **Beware:** X10A supplies 5 V; wiring mistakes can damage the heat pump's PCB.
-  Read upstream's README wiring section before connecting anything.
+![The 8-pin X10A connector, with RX, TX and GND marked](docs/images/x10a-8pin-rotex.png)
+
+*The 8-pin ROTEX-style X10A. Pin 1 (left) is +5 V, pin 8 (right) is GND. Photo
+from [raomin/ESPAltherma](https://github.com/raomin/ESPAltherma), annotated.*
+
+**The data lines cross.** The labels on the connector are the heat pump's, so:
+
+| X10A pin | ESP32 | Default |
+|---|---|---|
+| **TX** | RX pin (device receives) | `GPIO16` |
+| **RX** | TX pin (device transmits) | `GPIO15` |
+| 5 V | VIN — powers the ESP | — |
+| GND | GND | — |
+
+Getting this backwards is the most common failure, and it looks like silence
+rather than an error. The Debug tab reports the RX line's idle level at boot:
+an idle transmitter holds its line **high**, so `idle LOW (not driven?)` means
+the receive wire is not on the pump's TX pin. Note the 8-pin variant above
+orders the labels **RX then TX**, the reverse of the common 4/5-pin connector —
+go by the printed labels, not the position.
+
+### Configurable pins
+
+The defaults are `GPIO16` / `GPIO15`, but **both are settable at runtime** from
+**Config → X10A pins**, stored in NVS — no rebuild needed to move them. This
+matters if your board has those pins committed elsewhere, or the wiring is
+already made up.
+
+Values are validated before they are accepted:
+
+- must be `0`–`39`, and RX and TX must differ
+- **`GPIO6`–`GPIO11` are refused** — they are the SPI flash bus, and using one
+  would stop the chip booting rather than merely failing
+- **`GPIO34`–`GPIO39` are refused for TX** — input-only on the ESP32, no output
+  driver
+- a stored pair that somehow fails validation is discarded at boot in favour of
+  the compile-time defaults
+
+A wrong-but-legal pin costs the heat pump link, not the device: WiFi and the web
+UI still come up, so it can be corrected from the browser.
+
+### Cautions
+
+- **X10A supplies 5 V** and connects to the heat pump's main PCB. Power the unit
+  down before wiring, and read upstream's wiring section first.
+- `GPIO16` sees 5 V, and the ESP32 is not officially 5 V tolerant. It works —
+  this unit has run for hours with zero CRC errors, as most ESPAltherma installs
+  do — but a BSS138-type level shifter is the in-spec option. An **RS-232**
+  transceiver such as a MAX3232 is the wrong part and will not work: X10A is
+  TTL, and the transceiver's inverted, bipolar output holds the ESP's RX
+  permanently low.
+- Optional dry contacts (thermostat, Smart Grid, safety relay) exist on the
+  connector but **this firmware drives no outputs** — see §2 of the FSD.
 
 ## Build
 
