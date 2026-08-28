@@ -67,11 +67,40 @@ MQTT, EEPROM, OTA and `Serial`.
 - **MQTT TLS verifies the broker** instead of `setInsecure()`.
 - **Configuration is runtime, not compile-time.**
 
+## Target unit — what it changes
+
+**Daikin Altherma LT split hydrobox EKHBH / EKHBX 008BA**, BA generation
+(~2009-2011), R410A. Selected in `main/model_config.h`.
+
+The BA generation speaks **protocol S**, not protocol I — upstream documents this
+exact family in `doc/Daikin S protocol.md` (EKHBH016BA6WN, 2009, issue #46).
+Three consequences for the port:
+
+1. **Protocol S is the path that must work**, so port and verify it first. It is
+   also the simpler of the two: 3-byte query, fixed reply lengths, registry ID in
+   byte 0 of the reply (protocol I puts it in byte 1 and carries a length byte).
+   Port I as well — it is a few lines — but do not let it drive the design.
+2. **Only 4 registries and 25 values** (`0x50`, `0x53`, `0x54`, `0x55`). The
+   `updateValues` / `getLabels` machinery still applies, but `registryIDs[32]`
+   and the 128-label scratch arrays are wildly oversized for this unit; keep them
+   generous anyway so a protocol-I machine still works.
+3. **`Converter::RType` defaults to 802 (R32)** — wrong for this unit, which is
+   **R410A = 801**. That default silently skews every pressure→temperature
+   conversion at `0x50`. Set it explicitly when the converter is ported; do not
+   rely on the upstream default.
+
+**Open**: `PROTOCOL_S.h` has no leaving/entering-water or DHW-tank temperature,
+while the Rotex protocol-S variant maps those at `0x54` offsets 2/4/8. Both
+definitions read the same registries, so in phase 2 dump raw `0x54` and see which
+mapping produces plausible water temperatures. Decide from the bytes, not the
+model number.
+
 ## Open questions
 
 - **Model definition selection**: keep compile-time `#include "def/<model>.h"`
   (simple, small binary) or embed several and select in NVS at runtime (needs a
   redesign of `labelDefs[]` from a static array to a parsed table)? Phase 2
-  assumes compile-time; revisit at phase 6.
+  assumes compile-time; revisit at phase 6. Low stakes now that the unit is
+  known and protocol S has one plausible definition (plus the Rotex variant).
 - **Topic compatibility**: keep upstream's `espaltherma/*` topics verbatim (drop-in
   replacement for an existing HA setup) or namespace them?

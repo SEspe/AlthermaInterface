@@ -1,14 +1,26 @@
 # FSD — AlthermaInterface
 
-**Version:** 0.1
+**Version:** 0.2
 **Firmware:** 0.1.0
 **Target:** ESP32 (ESP32-WROOM devkit, 4 MB flash), ESP-IDF v6.0.1
+**Heat pump:** Daikin Altherma LT split hydrobox **EKHBH / EKHBX 008BA** —
+**protocol S**
 
 Functional Specification + change record for AlthermaInterface. This document
 is authoritative for *what the firmware must do*; `docs/PORTING.md` covers *how
 the upstream code maps onto it*, and `CLAUDE.md` covers build/verify workflow.
 
 ## Changelog
+
+- v0.2 — **Target unit fixed: EKHBH/EKHBX 008BA, protocol S (firmware 0.1.0),
+  §5, §6.** The unit is a BA-generation Altherma LT hydrobox, which speaks the
+  *older* protocol S, not protocol I — upstream documents this exact family
+  (`doc/Daikin S protocol.md`: "DAIKIN EKHBH016BA6WN year 2009", issue #46).
+  `main/def/PROTOCOL_S.h` + `main/labeldef.h` copied from upstream, selected via
+  the new `main/model_config.h`. Consequence, recorded here because it sets
+  expectations: protocol S exposes **25 values across 4 registries**, not the
+  hundreds a protocol-I machine offers. Not yet in the build — no consumer of
+  the table exists until the converter lands.
 
 - v0.1 — **ESP-IDF scaffold (firmware 0.1.0), §1–§9.** New repo established as
   a native ESP-IDF rewrite of raomin/ESPAltherma (MIT), which is credited in
@@ -63,20 +75,45 @@ values, accumulate them into one JSON object; publish the object once per cycle.
 
 ## 5. Protocols
 
-- **Protocol I** (default): query `0x03 0x40 <regID> <CRC>`; reply length is
-  read from byte 3 of the response.
-- **Protocol S**: query `0x02 <regID> <CRC>`; reply length is fixed per
-  registry (0x50 → 6, 0x56 → 4, otherwise 18).
+**This unit uses protocol S** (EKHBH/EKHBX 008BA, BA generation). Protocol I is
+implemented anyway — it is a handful of lines difference and keeps the firmware
+usable on a newer machine.
+
+- **Protocol S** (this unit): query `0x02 <regID> <CRC>`, 3 bytes. Reply length
+  is fixed per registry, and the registry ID is the **first** byte of the reply.
+- **Protocol I**: query `0x03 0x40 <regID> <CRC>`, 4 bytes. Reply length is read
+  from byte 3 of the response; the registry ID is the **second** byte.
 - CRC on both: `~(sum of bytes)`.
 - Error reply `0x15 0xEA` = the heat pump did not understand the command.
 
-Reference: upstream `doc/Daikin I protocol.md`, `doc/Daikin S protocol.md`.
+Reply lengths for protocol S: upstream's `get_reply_len()` returns 6 for `0x50`,
+**4** for `0x56`, 18 otherwise, while `doc/Daikin S protocol.md` states 6 for
+both `0x50` and `0x56`. The code is field-proven and wins; `0x56` is moot here
+because `PROTOCOL_S.h` never queries it.
+
+Reference: upstream `doc/Daikin S protocol.md`, `doc/Daikin I protocol.md`.
 
 ## 6. Value decoding
 
 Registry bytes → labelled values via the upstream converter table (~100
-conversion IDs) and the per-model definition files. Refrigerant type
-(R410A/R32/R22) selects the pressure→temperature curve.
+conversion IDs) and the per-model definition file, selected in
+`main/model_config.h`.
+
+For this unit that file is `main/def/PROTOCOL_S.h`: **25 values over 4
+registries** — `0x50` (HP/LP refrigerant pressure), `0x53` (expansion valve, fan
+speeds, compressor frequency, output states), `0x54` (the temperatures: outdoor
+air, indoor suction, both heat exchangers, discharge pipe, fin, setpoint),
+`0x55` (operation mode, error / thermo-off / warning / caution codes).
+
+This is far less than a modern protocol-I Altherma reports (hundreds of values),
+and it is a property of the 2009-era PCB, not of this firmware. Notably absent:
+leaving/entering water temperature and DHW tank temperature — the Rotex
+protocol-S variant maps those at `0x54` offsets 2/4/8, so if this unit turns out
+to answer with plausible water temperatures there, `PROTOCOL_S_ROTEX.h` is the
+better base. Decide empirically in phase 2, not from the model number.
+
+Refrigerant type (R410A/R32/R22) selects the pressure→temperature curve;
+EKHBH/EKHBX 008BA is **R410A**.
 
 ## 7. MQTT
 
