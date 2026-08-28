@@ -1,0 +1,16 @@
+{
+  "name": "AlthermaInterface",
+  "version": "__VERSION__",
+  "new_install_prompt_erase": true,
+  "builds": [
+    {
+      "chipFamily": "ESP32",
+      "parts": [
+        { "path": "firmware/bootloader.bin", "offset": 4096 },
+        { "path": "firmware/partition-table.bin", "offset": 32768 },
+        { "path": "firmware/ota_data_initial.bin", "offset": 57344 },
+        { "path": "firmware/AlthermaInterface.bin", "offset": 65536 }
+      ]
+    }
+  ]
+}

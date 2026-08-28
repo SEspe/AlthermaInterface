@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AlthermaInterface &mdash; web flasher</title>
+<script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+<style>
+  :root { color-scheme: dark; }
+  body { font-family: system-ui, sans-serif; margin: 0; background: #14161a;
+         color: #e6e6e6; line-height: 1.55; }
+  main { max-width: 720px; margin: 0 auto; padding: 40px 20px 80px; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  .sub { color: #8b93a1; margin: 0 0 28px; }
+  h2 { font-size: 15px; color: #8b93a1; font-weight: 600; text-transform: uppercase;
+       letter-spacing: .04em; margin: 32px 0 8px; }
+  p { margin: 10px 0; }
+  a { color: #5ec8f2; }
+  code { background: #1c1f26; padding: 1px 5px; border-radius: 3px; font-size: 90%; }
+  .card { background: #1c1f26; border: 1px solid #2a2f39; border-radius: 8px;
+          padding: 20px; margin: 20px 0; }
+  .warn { border-left: 3px solid #f6ad55; padding-left: 14px; color: #d9c9a8; }
+  ol { padding-left: 20px; }
+  li { margin: 6px 0; }
+  footer { color: #5c6472; font-size: 13px; margin-top: 40px; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>AlthermaInterface</h1>
+<p class="sub">Browser-based first flash for a new ESP32.</p>
+
+<div class="card">
+  <esp-web-install-button manifest="manifest.json">
+    <button slot="activate" style="background:#2b6cb0;color:#fff;border:0;
+      padding:12px 22px;border-radius:5px;font-size:15px;cursor:pointer">
+      Connect device &amp; flash
+    </button>
+    <span slot="unsupported">
+      This browser cannot talk to serial devices. Use <b>Chrome</b> or <b>Edge</b>
+      on a desktop &mdash; Firefox and Safari do not implement Web Serial.
+    </span>
+    <span slot="not-allowed">
+      Serial access was denied. Reload and allow the permission prompt.
+    </span>
+  </esp-web-install-button>
+</div>
+
+<p>Plug the ESP32 into whichever computer has the USB cable, open this page in
+Chrome or Edge, and click the button. Nothing needs installing &mdash; no
+ESP-IDF, no esptool, no Python.</p>
+
+<h2>What it writes</h2>
+<p>The bootloader, partition table, initial OTA data and the application, at
+their proper offsets for the ESP32 &mdash; the same four images
+<code>idf.py flash</code> would write. The firmware served here is rebuilt from
+<code>master</code> automatically, so it is always current.</p>
+
+<h2>This is for the first flash only</h2>
+<p>After this, the device has its own web UI with an <b>OTA</b> tab. Every later
+update goes over the network &mdash; upload a <code>.bin</code>, or have the
+device fetch a release from GitHub itself. You should not need a cable again.</p>
+
+<h2>Then what</h2>
+<ol>
+  <li>The device comes up as an open access point named
+      <code>AlthermaInterface</code> at <code>192.168.4.1</code>.</li>
+  <li>Connect to it, open that address, go to <b>Config</b>, scan for your WiFi
+      and save. The device reboots onto your network.</li>
+  <li>Set the MQTT broker in <b>Config</b>, and check the <b>Debug</b> tab for
+      X10A link health.</li>
+</ol>
+
+<p class="warn">Wire the X10A connector with the heat pump powered down, and
+check the pin mapping in the
+<a href="https://github.com/SEspe/AlthermaInterface#hardware">README</a> first
+&mdash; the data lines cross, and the 8-pin ROTEX variant orders them
+differently from the 5-pin one.</p>
+
+<footer>
+  <a href="https://github.com/SEspe/AlthermaInterface">Source and documentation</a>
+  &nbsp;&middot;&nbsp;
+  Derived from <a href="https://github.com/raomin/ESPAltherma">raomin/ESPAltherma</a> (MIT)
+</footer>
+
+</main>
+</body>
+</html>

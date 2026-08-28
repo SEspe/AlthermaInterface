@@ -173,20 +173,35 @@ UI still come up, so it can be corrected from the browser.
 - Optional dry contacts (thermostat, Smart Grid, safety relay) exist on the
   connector but **this firmware drives no outputs** — see §2 of the FSD.
 
-## Build
+## Build &amp; flash
 
-ESP-IDF v6.0.1, target `esp32`:
+Requires [ESP-IDF](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/)
+v6.x.
 
-```powershell
-$py = "C:\Users\Stein\.espressif\python_env\idf6.0_py3.11_env\Scripts\python.exe"
-$env:IDF_PATH = "D:\esp\v6.0.1\esp-idf"
-& $py "$env:IDF_PATH\tools\idf_tools.py" export --format key-value | ForEach-Object {
-  if ($_ -match '^([^=]+)=(.*)$') { $n=$matches[1]; $v=$matches[2].Replace('%PATH%',$env:PATH); Set-Item "env:$n" $v } }
-& $py "$env:IDF_PATH\tools\idf.py" build
+```sh
+idf.py set-target esp32
+idf.py -p COMx flash monitor
 ```
 
-Then flash over USB, or upload `build/AlthermaInterface.bin` from the device's
-OTA tab.
+Or skip the toolchain entirely: download a prebuilt `.bin` from
+[Releases](https://github.com/SEspe/AlthermaInterface/releases) and flash it
+(first time via esptool, afterwards from the web UI's **OTA** tab).
+
+**No USB access on your dev machine, or want to flash from any browser?** Use the
+[browser-based web flasher](https://SEspe.github.io/AlthermaInterface/) — plug
+the ESP32 into whatever computer has the USB cable, open that page in Chrome or
+Edge, and click *Connect device & flash*. No ESP-IDF or esptool install needed
+there at all. It's for the initial flash only; every update after that goes over
+OTA. The page is rebuilt automatically from `master` by
+[`.github/workflows/webflash-pages.yml`](.github/workflows/webflash-pages.yml).
+
+### First boot
+
+A freshly flashed board has no WiFi configured, so it raises an **open access
+point named `AlthermaInterface` at `192.168.4.1`**. Connect to it, open that
+address, and use **Config** to scan for your network and save — the device
+reboots onto it. Then set the MQTT broker, and check **Debug** for X10A link
+health.
 
 ## License
 
