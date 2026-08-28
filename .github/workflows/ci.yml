@@ -1,0 +1,121 @@
+name: CI
+
+# Builds the firmware and runs the checks that have actually caught something in
+# this project. Nothing here is style policing - each check exists because the
+# corresponding mistake was made at least once.
+#
+# Every extraction below fails closed: if the value cannot be read, the step
+# errors rather than comparing two empty strings and reporting success.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch: {}
+
+env:
+  IDF_VERSION: v6.0.1
+
+jobs:
+  checks:
+    name: Repository checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: No secrets committed
+        run: |
+          # secrets.h holds WiFi and MQTT credentials and must never be tracked.
+          # Only the .example template belongs in the repository.
+          if git ls-files --error-unmatch main/secrets.h 2>/dev/null; then
+            echo "::error file=main/secrets.h::tracked, but it holds credentials and must stay local"
+            exit 1
+          fi
+          test -f main/secrets.h.example || {
+            echo "::error::main/secrets.h.example is missing, so nobody can tell what to fill in"
+            exit 1; }
+          echo "OK: secrets.h untracked, template present"
+
+      - name: No local-only working documents
+        run: |
+          for f in CLAUDE.md SESSION_NOTES.md; do
+            if git ls-files --error-unmatch "$f" 2>/dev/null; then
+              echo "::error file=$f::local working document, must not be published"
+              exit 1
+            fi
+          done
+          echo "OK: local documents not tracked"
+
+      - name: Firmware version matches the FSD
+        run: |
+          # The release contract is that code, main/version.h and the FSD
+          # changelog move together. They have drifted apart before.
+          CODE=$(sed -n 's/.*FIRMWARE_VERSION "\([^"]*\)".*/\1/p' main/version.h)
+          FSD=$(sed -n 's/^\*\*Firmware:\*\* *//p' FSD_AlthermaInterface.md | head -1 | tr -d '[:space:]')
+          test -n "$CODE" || { echo "::error::cannot read FIRMWARE_VERSION from main/version.h"; exit 1; }
+          test -n "$FSD"  || { echo "::error::cannot read the Firmware line from the FSD header"; exit 1; }
+          echo "version.h: $CODE   FSD header: $FSD"
+          if [ "$CODE" != "$FSD" ]; then
+            echo "::error::main/version.h says $CODE but the FSD header says $FSD"
+            exit 1
+          fi
+
+      - name: Selected definition file exists
+        run: |
+          # model_config.h picks the heat pump definition by #include; a typo
+          # here does fail the build, but with an unhelpful message.
+          DEF=$(sed -n 's|.*#include "\(def/[^"]*\)".*|\1|p' main/model_config.h)
+          test -n "$DEF" || { echo "::error::model_config.h selects no definition file"; exit 1; }
+          echo "definition: $DEF"
+          test -f "main/$DEF" || { echo "::error::main/$DEF does not exist"; exit 1; }
+
+      - name: README references resolve
+        run: |
+          # The README is the public face and has carried dangling links before.
+          fail=0
+          n=0
+          for p in $(sed -n 's/.*](\([^)#]*\)).*/\1/p' README.md); do
+            case "$p" in http*|mailto:*) continue ;; esac
+            n=$((n+1))
+            if [ ! -e "$p" ]; then
+              echo "::error file=README.md::missing path referenced: $p"
+              fail=1
+            fi
+          done
+          echo "checked $n local reference(s)"
+          exit $fail
+
+  build:
+    name: Build (esp32)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build with ESP-IDF
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: ${{ env.IDF_VERSION }}
+          target: esp32
+          path: .
+          command: idf.py build
+
+      - name: Report image size
+        run: |
+          SIZE=$(stat -c%s build/AlthermaInterface.bin)
+          # partitions-esp32.csv gives each app slot 0x1E0000.
+          LIMIT=$((0x1E0000))
+          echo "image: $SIZE bytes of $LIMIT ($(( 100 * SIZE / LIMIT ))% of an app slot)"
+          if [ "$SIZE" -gt "$LIMIT" ]; then
+            echo "::error::image does not fit the app partition"
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AlthermaInterface-bin
+          path: |
+            build/AlthermaInterface.bin
+            build/bootloader/bootloader.bin
+            build/partition_table/partition-table.bin
+            build/ota_data_initial.bin
+          if-no-files-found: error

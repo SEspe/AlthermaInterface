@@ -1,7 +1,7 @@
 # FSD — AlthermaInterface
 
-**Version:** 1.0
-**Firmware:** 1.0.0
+**Version:** 1.1
+**Firmware:** 1.0.1
 **Target:** ESP32 (ESP32-WROOM devkit, 4 MB flash), ESP-IDF v6.0.1
 **Heat pump:** Daikin Altherma LT split hydrobox **EKHBH / EKHBX 008BA** —
 **protocol S**, ROTEX value mapping
@@ -11,6 +11,21 @@ is authoritative for *what the firmware must do*; `docs/PORTING.md` covers *how
 the upstream code maps onto it*.
 
 ## Changelog
+
+- v1.1 — **X10A pins become dropdowns; CI (firmware 1.0.1), §3.1, §10.** The
+  Config tab offers only GPIOs that exist and can do the job — GPIO6-11 (SPI
+  flash) omitted entirely, GPIO34-39 offered for RX only since they are
+  input-only — with strapping pins and the console UART pair annotated rather
+  than hidden. RX and TX are compared on change and again on save. The
+  server-side check also rejects GPIO20, 24 and 28-31, which do not exist on the
+  ESP32 and which the old 0-39 range test accepted.
+  Adds `.github/workflows/ci.yml`: a build plus checks that secrets are not
+  committed, that the local-only documents are not published, that
+  `main/version.h` and this header agree, that the selected definition file
+  exists, and that README links resolve. Every check fails closed. The version
+  check caught a real drift on its first run — this entry.
+  Also adds the browser-based web flasher (`docs/webflash/`) published to GitHub
+  Pages, for the initial USB flash of a blank board.
 
 - v1.0 — **First release (firmware 1.0.0).** The port is functionally complete
   and running on the reference unit: X10A read path, WiFi with provisioning and
