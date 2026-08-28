@@ -222,10 +222,20 @@ esp_err_t alt_settings_set_gh_repo(const char *repo)
 int alt_settings_rx_pin(void) { return s_rx_pin; }
 int alt_settings_tx_pin(void) { return s_tx_pin; }
 
+// GPIO20, 24 and 28-31 are not bonded out on the ESP32, so they are not merely
+// a bad choice - they do not exist.
+static bool pin_exists(int p)
+{
+    if (p < 0 || p > 39)            return false;
+    if (p == 20 || p == 24)         return false;
+    if (p >= 28 && p <= 31)         return false;
+    return true;
+}
+
 const char *alt_settings_check_pins(int rx, int tx)
 {
-    if (rx < 0 || rx > 39 || tx < 0 || tx > 39) {
-        return "pins must be 0-39";
+    if (!pin_exists(rx) || !pin_exists(tx)) {
+        return "no such GPIO on the ESP32";
     }
     if (rx == tx) {
         return "RX and TX must differ";
