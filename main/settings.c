@@ -10,7 +10,24 @@
 #include "nvs_flash.h"
 
 #include "board_config.h"
+
+// secrets.h is git-ignored and seeds first-boot defaults on a configured
+// machine. A clean clone does not have it, and must still build - the device
+// then comes up unconfigured and is set up through the web UI, which is the
+// intended path for a new board anyway.
+#if __has_include("secrets.h")
 #include "secrets.h"
+#endif
+
+#ifndef ALT_MQTT_URI
+#define ALT_MQTT_URI ""
+#endif
+#ifndef ALT_MQTT_USERNAME
+#define ALT_MQTT_USERNAME ""
+#endif
+#ifndef ALT_MQTT_PASSWORD
+#define ALT_MQTT_PASSWORD ""
+#endif
 
 static const char *TAG = "settings";
 
