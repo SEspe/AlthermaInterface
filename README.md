@@ -4,8 +4,42 @@ ESP32 firmware that reads a **Daikin Altherma** heat pump over its X10A service
 connector and publishes every value to MQTT / Home Assistant — built on
 **ESP-IDF v6.x**, no Arduino framework and no PlatformIO.
 
-Status: **scaffold**. The IDF project builds and boots; the functional modules
-are being ported one at a time (see `docs/PORTING.md`).
+Status: **v1.0.0, running on a real machine.** Verified against a Daikin Altherma
+LT split hydrobox (EKHBH/EKHBX 008BA, protocol S) — the X10A link has run for
+hours with zero CRC errors, and the values reach Home Assistant with no YAML.
+
+## What it does
+
+- **Reads the X10A service port** — 9600 8E1, Daikin protocol **S** and **I**,
+  CRC-checked, with the per-model value definitions from upstream.
+- **Publishes to MQTT** in upstream ESPAltherma's exact payload format, so an
+  existing Home Assistant setup needs no reconfiguration.
+- **Home Assistant discovery** — entities appear automatically, with device
+  classes and long-term statistics.
+- **On-device web UI** — measurements, link diagnostics, configuration and OTA:
+  - *Daikin Data* — every decoded value, refreshed live
+  - *Debug* — X10A link health per registry, WiFi, MQTT activity counters, device
+  - *Config* — WiFi (scan and pick a network), MQTT broker, X10A pins, repo
+  - *OTA* — upload a `.bin`, or flash a GitHub release the device downloads itself
+- **WiFi provisioning** — with nothing configured it raises an open access point
+  named `AlthermaInterface` at `192.168.4.1` so the network can be chosen from a
+  browser. Static IP supported, for routers that associate a client but never
+  answer its DHCP request.
+- **OTA with rollback** — dual app slots; an image that fails to boot is reverted
+  automatically, so a bad upload cannot brick a unit sealed inside a heat pump.
+
+**Read-only by design.** It publishes and never subscribes, and drives no GPIO,
+so it cannot command the heat pump. See `FSD_AlthermaInterface.md` §2.
+
+## A find, for anyone else on protocol S
+
+A scan of all 256 registry IDs on this machine turned up **registry `0x5A`**,
+which appears in no upstream definition file and in no published documentation.
+Correlating it against a live heating cycle showed it is the **raw ADC readout**
+of the sensors `0x54` reports converted — individual channels track inlet water,
+outlet water and refrigerant temperature at r ≈ −0.93 to −0.99, bracketed by a
+zero channel and a 1020 (10-bit full-scale) channel. Full method and data in
+[`docs/REGISTER_0x5A.md`](docs/REGISTER_0x5A.md).
 
 ## Credit — this is a derivative of ESPAltherma
 

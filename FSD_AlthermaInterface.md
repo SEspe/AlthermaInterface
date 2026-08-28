@@ -1,7 +1,7 @@
 # FSD — AlthermaInterface
 
-**Version:** 0.10
-**Firmware:** 0.8.0
+**Version:** 1.0
+**Firmware:** 1.0.0
 **Target:** ESP32 (ESP32-WROOM devkit, 4 MB flash), ESP-IDF v6.0.1
 **Heat pump:** Daikin Altherma LT split hydrobox **EKHBH / EKHBX 008BA** —
 **protocol S**, ROTEX value mapping
@@ -11,6 +11,42 @@ is authoritative for *what the firmware must do*; `docs/PORTING.md` covers *how
 the upstream code maps onto it*, and `CLAUDE.md` covers build/verify workflow.
 
 ## Changelog
+
+- v1.0 — **First release (firmware 1.0.0).** The port is functionally complete
+  and running on the reference unit: X10A read path, WiFi with provisioning and
+  a SoftAP fallback, MQTT publishing, Home Assistant discovery, the four-tab web
+  UI, and OTA both by upload and from a GitHub release.
+  Verified against the real heat pump rather than in principle — hours of
+  polling with zero CRC failures, values live in Home Assistant, and OTA proven
+  ping-ponging between both app slots.
+  Scope is settled: read-only, no control outputs (§2); protocol S with the
+  ROTEX value mapping; plus registry `0x5A`, which this project identified and
+  documented.
+
+- v0.13 — **WiFi provisioning (firmware 0.11.0), §3, §8, §10.** Credentials and
+  IP mode move to NVS, configurable from the Config tab: scan, pick a network,
+  password, DHCP or static. Precedence is NVS, then `secrets.h`, then a SoftAP —
+  which is what carried the deployed unit through the change without it dropping
+  off the network. With nothing configured, an open AP named `AlthermaInterface`
+  at `192.168.4.1` serves the same page so a blank board can be pointed at a
+  network from a browser; APSTA, so scanning works while the AP is serving.
+  Two guards, because the unit has no USB attached: a stored static mode with no
+  address falls back to DHCP rather than booting unreachable, and the UI states
+  that this AP does not answer DHCP.
+
+- v0.12 — **Configurable X10A pins, GitHub-release OTA, Debug tab (firmware
+  0.10.0), §3.1, §9, §10.** RX/TX become settings with validation (GPIO6-11
+  refused as SPI flash, TX refused on input-only 34-39). The OTA tab gains
+  flashing straight from a GitHub release, downloaded by the device over HTTPS
+  because the asset host sends no CORS header. The WiFi tab becomes Debug and
+  gains MQTT activity counters — published, failures, connects, disconnects,
+  time since last publish — which separate "connected but silent" from "cannot
+  connect".
+
+- v0.11 — **Bring-up debug commands removed (firmware 0.9.0), §10.** The
+  protocol sweep, 256-ID register scan and on-demand RX check had done their job
+  and are gone from a firmware that lives inside a heat pump. The passive link
+  table stays.
 
 - v0.10 — **Control outputs dropped from scope (firmware 0.8.0), §1, §2.**
   Phase 5 is not deferred, it is cancelled: this machine is controlled by an
