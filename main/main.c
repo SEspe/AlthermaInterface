@@ -2,9 +2,9 @@
 // port. Protocol and value definitions derive from raomin/ESPAltherma (MIT);
 // see README.md and docs/PORTING.md.
 //
-// Phase 2 (docs/PORTING.md): X10A read path only. No WiFi, no MQTT - the point
-// is to prove the wiring, the protocol-S framing and the value decoding against
-// the real heat pump, over USB serial, before anything is layered on top.
+// Phase 3 (docs/PORTING.md): the X10A read path from phase 2, now publishing to
+// MQTT. The poll loop is unchanged and still logs every decoded value over USB
+// serial, so a decode problem stays distinguishable from a transport problem.
 
 #include <stdio.h>
 #include <string.h>
@@ -21,7 +21,11 @@
 #include "althermaserial.h"
 #include "board_config.h"
 #include "converters.h"
+#include "mqtt.h"
+#include "settings.h"
 #include "version.h"
+#include "web_server.h"
+#include "wifi.h"
 
 static const char *TAG = "main";
 
@@ -137,7 +141,21 @@ void app_main(void)
     // that cannot talk to the heat pump rolls back instead.
     esp_ota_mark_app_valid_cancel_rollback();
 
+    ESP_ERROR_CHECK(alt_settings_init());
     ESP_ERROR_CHECK(alt_serial_init());
+
+    // WiFi and MQTT come up alongside the poll loop, not before it: the heat
+    // pump is the point, and a broker that is down must not stop us reading and
+    // logging values over serial.
+    ESP_ERROR_CHECK(alt_wifi_start());
+    if (!alt_wifi_wait_connected(30000)) {
+        ESP_LOGW(TAG, "no WiFi after 30 s; carrying on regardless");
+    }
+    // Started unconditionally: esp-mqtt reconnects on its own once the network
+    // appears, so a slow or absent AP must not permanently disable publishing.
+    ESP_ERROR_CHECK(alt_mqtt_start());
+    alt_mqtt_log_redirect();
+    ESP_ERROR_CHECK(alt_web_start());
 
     converter_set_refrigerant(ALT_REFRIGERANT);
     char protocol = converter_protocol();
@@ -160,6 +178,8 @@ void app_main(void)
         int64_t start = esp_timer_get_time() / 1000;
         ESP_LOGI(TAG, "---- poll cycle ----");
         poll_once(protocol);
+
+        alt_mqtt_publish_values();
 
         int64_t elapsed = (esp_timer_get_time() / 1000) - start;
         int64_t wait = ALT_POLL_INTERVAL_MS - elapsed;

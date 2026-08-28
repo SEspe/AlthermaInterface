@@ -5,12 +5,12 @@ idf_component_register(
         "main.c"
         "althermaserial.c"     # <- include/comm.h  (UART, CRC, protocol I/S)
         "converters.cpp"       # <- include/converters.h + include/def/*.h
-        # "wifi.c"             # <- src/main.cpp    (setup_wifi/checkWifi/roaming)
-        # "mqtt.c"             # <- include/mqtt.h  (PubSubClient -> esp-mqtt)
+        "wifi.c"               # <- src/main.cpp    (setup_wifi/checkWifi)
+        "mqtt.c"               # <- include/mqtt.h + mqttserial.h (-> esp-mqtt)
+        "settings.c"           # <- src/setup.h     (compile-time -> NVS)
+        "web_server.c"         # new: config UI, WiFi diag, values, OTA upload
         # "homeassistant.cpp"  # <- src/homeassistant.cpp (near-verbatim)
-        # "settings.c"         # <- src/setup.h     (compile-time -> NVS)
         # "control.c"          # <- thermostat / smart grid / safety relay
-        # "web_server.c"       # <- new: runtime config UI + OTA upload
     INCLUDE_DIRS "."
     REQUIRES
         esp_driver_uart

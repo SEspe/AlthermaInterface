@@ -50,13 +50,18 @@ MQTT, EEPROM, OTA and `Serial`.
    This is the highest-risk, highest-value step: verify against the real heat
    pump before anything else is built on top. *(code written, awaiting
    verification on the heat pump)*
-3. **WiFi + MQTT publish** — `wifi.c`, `mqtt.c`, `log_mqtt.c`; JSON ATTR payload
-   byte-compatible with upstream so existing HA dashboards keep working.
+3. **WiFi + MQTT publish** — `wifi.c`, `mqtt.c` (log mirror folded in); JSON ATTR
+   payload byte-compatible with upstream so existing HA dashboards keep working.
+   *(done, pending a broker to talk to)*
+   Web UI + `settings.c` + OTA upload were pulled forward from phase 6 and
+   landed here too, so configuration is already runtime rather than compile-time.
 4. **HA discovery** — port `homeassistant.cpp`, verify entity IDs match
    upstream's (`sensor.espaltherma_*`) unless deliberately renamed.
 5. **Control outputs** — thermostat, Smart Grid, safety relay, state restored
    from NVS on boot.
-6. **Runtime config + web UI + OTA** — retires `setup.h` reflashing.
+6. **Runtime config + web UI + OTA** — *mostly landed early, in phase 3.* What
+   is left: WiFi credentials and poll frequency into NVS (still `secrets.h` /
+   compile-time), and the model-definition selection question below.
 
 ## Deliberate deviations from upstream
 

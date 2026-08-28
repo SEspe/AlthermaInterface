@@ -1,7 +1,7 @@
 # FSD — AlthermaInterface
 
-**Version:** 0.4
-**Firmware:** 0.2.0
+**Version:** 0.5
+**Firmware:** 0.3.0
 **Target:** ESP32 (ESP32-WROOM devkit, 4 MB flash), ESP-IDF v6.0.1
 **Heat pump:** Daikin Altherma LT split hydrobox **EKHBH / EKHBX 008BA** —
 **protocol S**
@@ -11,6 +11,22 @@ is authoritative for *what the firmware must do*; `docs/PORTING.md` covers *how
 the upstream code maps onto it*, and `CLAUDE.md` covers build/verify workflow.
 
 ## Changelog
+
+- v0.5 — **WiFi, MQTT and the web UI (firmware 0.3.0), §7, §8, §10.** Phase 3,
+  plus the web UI that was scheduled for phase 6 and pulled forward.
+  `wifi.c` (station mode, event-group state, upstream's reconnect ladder:
+  re-associate every 15 s, reboot after 2 min with no link), `mqtt.c`
+  (esp-mqtt; one JSON object per cycle to `espaltherma/ATTR` in upstream's exact
+  format, retained `espaltherma/LWT`, log mirror on `espaltherma/log`),
+  `settings.c` (MQTT broker/user/password in NVS) and `web_server.c` (four tabs:
+  Daikin Data, WiFi, Config, OTA, with `POST /ota/upload`).
+  Configuration is now genuinely runtime: `secrets.h` supplies only first-boot
+  defaults, and anything saved from the Config tab overrides it from NVS.
+  The stored MQTT password is never sent to the browser — the UI is told only
+  whether one exists, and a blank field means "keep it".
+  Upstream's same-SSID AP roaming is **not** ported; noted in `wifi.c`.
+  Home Assistant discovery is still phase 4, so entities must be defined by
+  hand for now.
 
 - v0.4 — **X10A read path (firmware 0.2.0), §4, §5, §6.** Phase 2 of the port.
   `main/althermaserial.c` (UART1 9600 8E1, protocol I/S framing, CRC, timeout
@@ -162,10 +178,39 @@ certificate bundle rather than `setInsecure()`.
 
 ## 8. Configuration
 
-Upstream requires editing `src/setup.h` and reflashing. Here, WiFi credentials,
-MQTT broker/credentials, poll frequency and output pin roles live in NVS and
-are editable from an on-device web UI. Model definition selection stays
-compile-time until further notice (see `docs/PORTING.md`, open questions).
+Upstream requires editing `src/setup.h` and reflashing. Here the MQTT broker
+URI, username and password live in NVS and are edited from the Config tab
+(`main/settings.c`). `main/secrets.h` — git-ignored, with a committed
+`secrets.h.example` — supplies first-boot defaults only; once saved from the web
+UI, NVS wins.
+
+The stored MQTT password is never sent to the browser. `GET /api/config`
+reports only whether one exists, and a blank password field on save means "keep
+the stored one", so the broker address can be changed without retyping it.
+
+Still compile-time, to be moved later: WiFi credentials (in `secrets.h`), poll
+frequency, output pin roles, and the model definition selection (see
+`docs/PORTING.md`, open questions).
+
+## 10. Web UI
+
+Served by the device itself on port 80 (`main/web_server.c`), four tabs:
+
+- **Daikin Data** — every label that has been read at least once, with its
+  registry and current value; refreshes every 5 s.
+- **WiFi** — SSID, IP, RSSI, channel, BSSID, link and broker state, free heap,
+  uptime, firmware version.
+- **Config** — MQTT broker URI, username, password. Saving persists to NVS and
+  reboots, because settings are read once at start-up and a restart is the one
+  path guaranteed to be consistent.
+- **OTA** — firmware upload with a progress bar.
+
+Endpoints: `GET /`, `GET /api/status`, `GET /api/values`, `GET|POST
+/api/config`, `POST /ota/upload`.
+
+There is **no authentication**. The device is expected to sit on a trusted LAN,
+exactly as upstream's ArduinoOTA does. Anyone who can reach port 80 can reflash
+it — do not expose it to the internet.
 
 ## 9. Update & recovery
 
