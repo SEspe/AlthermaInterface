@@ -79,29 +79,57 @@ Pinned at upstream commit `4e518ec` (2026-07-24) for this port.
 
 ## Hardware
 
-An ESP32 wired to the heat pump's **X10A** service connector — four wires: 5 V,
-GND, and the two data lines.
+An ESP32 wired to the heat pump's **X10A** service connector, on the main PCB of
+the indoor unit or monobloc. Four wires: 5 V, GND, and the two data lines.
 
-![The 8-pin X10A connector, with RX, TX and GND marked](docs/images/x10a-8pin-rotex.png)
+Turn the heat pump off at the breaker before opening the panel.
 
-*The 8-pin ROTEX-style X10A. Pin 1 (left) is +5 V, pin 8 (right) is GND. Photo
-from [raomin/ESPAltherma](https://github.com/raomin/ESPAltherma), annotated.*
+### 5 pin X10A connection
 
-**The data lines cross.** The labels on the connector are the heat pump's, so:
+The common Daikin Altherma connector:
 
-| X10A pin | ESP32 | Default |
-|---|---|---|
-| **TX** | RX pin (device receives) | `GPIO16` |
-| **RX** | TX pin (device transmits) | `GPIO15` |
-| 5 V | VIN — powers the ESP | — |
-| GND | GND | — |
+| X10A | ESP32 |
+|---|---|
+| 1-5V | `5V` / `VIN` — can power the ESP |
+| 2-TX | **RX pin** — default `GPIO16`. Prefer your board's RX2. |
+| 3-RX | **TX pin** — default `GPIO15`. Prefer your board's TX2. |
+| 4-NC | not connected |
+| 5-GND | `GND` |
 
-Getting this backwards is the most common failure, and it looks like silence
-rather than an error. The Debug tab reports the RX line's idle level at boot:
-an idle transmitter holds its line **high**, so `idle LOW (not driven?)` means
-the receive wire is not on the pump's TX pin. Note the 8-pin variant above
-orders the labels **RX then TX**, the reverse of the common 4/5-pin connector —
-go by the printed labels, not the position.
+**The data lines cross.** The labels are the heat pump's, so its TX is your RX.
+Upstream defaults TX to GPIO17; this firmware uses GPIO15, and both pins are
+configurable — see below.
+
+If your installation has a bi-zone module, X10A is occupied by it; connect to
+**X12A** on the bi-zone module instead, which has identical pins.
+
+### 8 pin X10A connection
+
+Some heat pumps (ROTEX) have an X10A port that connects differently:
+
+![The 8-pin ROTEX X10A connector, with RX, TX and GND marked](docs/images/x10a-8pin-rotex.png)
+
+*Photo from [raomin/ESPAltherma](https://github.com/raomin/ESPAltherma), annotated.*
+
+Pin 1 (on the left in the picture) is **+5 V** and pin 8 on the right is **GND**.
+Some users report the 5 V from a ROTEX is not strong enough to run an
+ESP32/ESP8266 — in that case power the board from a USB charger and leave the
+X10A 5 V unconnected.
+
+**Whatever you do, keep a wire from the ESP's GND to the X10A GND pin — even
+when powering the board from a USB charger.**
+
+Note this variant orders the labels **RX then TX**, the reverse of the 5-pin
+connector above. Go by the printed labels, not by position.
+
+### When it does not work
+
+Getting the data lines backwards produces *silence*, not an error — every
+registry simply times out with zero bytes. The **Debug** tab reports the RX
+line's idle level sampled at boot: an idle transmitter holds its line **high**,
+so `idle LOW (not driven?)` means the receive wire is not on the pump's TX pin.
+That one line distinguishes a wiring fault from a protocol or definition
+problem.
 
 ### Configurable pins
 
