@@ -23,6 +23,17 @@ static const char *TAG = "x10a";
 static SemaphoreHandle_t s_uart_lock;
 static int query_registry_locked(uint8_t reg_id, uint8_t *buf, char protocol);
 
+// Set by the last query, so the register scan can tell the failure modes apart
+// without duplicating the parsing.
+static bool s_last_was_not_impl;   // machine answered 0x15 0xEA
+static int  s_last_bytes;          // bytes received, whatever the outcome
+
+// Scan knobs. The scan walks 256 IDs, so it must not evict the poll loop's
+// diagnostics, and it cannot afford the usual half-second settle after each
+// silent register (that alone would add two minutes).
+static bool s_diag_suppress;
+static int  s_fail_settle_ms = 500;
+
 // ---- link diagnostics, readable over HTTP (see althermaserial.h) --------
 
 typedef struct {
@@ -59,6 +70,9 @@ static alt_diag_t *diag_for(uint8_t reg_id, char proto)
 static void diag_record(uint8_t reg_id, char proto, const char *status,
                         const uint8_t *buf, int len, bool ok)
 {
+    if (s_diag_suppress) {
+        return;
+    }
     alt_diag_t *d = diag_for(reg_id, proto);
     if (!d) {
         return;
@@ -226,6 +240,127 @@ void alt_probe_start(void)
     xTaskCreate(&probe_task, "x10a_probe", 4096, NULL, 4, NULL);
 }
 
+// ---- full register scan -------------------------------------------------
+
+static volatile bool s_scan_running;
+static volatile int  s_scan_progress;
+static uint8_t s_scan_outcome[256];
+
+typedef struct {
+    uint8_t  reg_id;
+    int      bytes;
+    char     hex[ALT_REPLY_MAX * 5 + 1];
+    alt_scan_outcome_t outcome;
+} alt_scan_hit_t;
+
+static alt_scan_hit_t s_scan_hits[ALT_SCAN_HITS_MAX];
+static size_t s_scan_hit_count;
+
+bool alt_scan_running(void)  { return s_scan_running; }
+int  alt_scan_progress(void) { return s_scan_progress; }
+size_t alt_scan_hit_count(void) { return s_scan_hit_count; }
+
+void alt_scan_totals(int *ok, int *not_impl, int *bad_crc, int *silent)
+{
+    int o = 0, n = 0, b = 0, s = 0;
+    for (int i = 0; i < 256; i++) {
+        switch (s_scan_outcome[i]) {
+        case ALT_SCAN_OK:       o++; break;
+        case ALT_SCAN_NOT_IMPL: n++; break;
+        case ALT_SCAN_BAD_CRC:  b++; break;
+        case ALT_SCAN_SILENT:   s++; break;
+        default: break;
+        }
+    }
+    if (ok)       *ok = o;
+    if (not_impl) *not_impl = n;
+    if (bad_crc)  *bad_crc = b;
+    if (silent)   *silent = s;
+}
+
+bool alt_scan_hit_at(size_t i, uint8_t *reg_id, const char **hex, int *bytes,
+                     alt_scan_outcome_t *outcome)
+{
+    if (i >= s_scan_hit_count) {
+        return false;
+    }
+    if (reg_id)  *reg_id  = s_scan_hits[i].reg_id;
+    if (hex)     *hex     = s_scan_hits[i].hex;
+    if (bytes)   *bytes   = s_scan_hits[i].bytes;
+    if (outcome) *outcome = s_scan_hits[i].outcome;
+    return true;
+}
+
+static void scan_task(void *arg)
+{
+    char protocol = (char)(intptr_t)arg;
+    uint8_t buf[ALT_REPLY_MAX];
+
+    memset(s_scan_outcome, 0, sizeof(s_scan_outcome));
+    s_scan_hit_count = 0;
+    s_scan_progress = 0;
+
+    // Results go to the scan table, not the per-registry diagnostics: 256 IDs
+    // would evict everything the poll loop has recorded.
+    s_diag_suppress = true;
+    // A silent register costs the full reply timeout; the usual half-second
+    // settle after a failure would add two minutes across 256 of them.
+    s_fail_settle_ms = 100;
+
+    ESP_LOGI(TAG, "scanning all 256 registry IDs on protocol '%c'", protocol);
+
+    for (int reg = 0; reg < 256; reg++) {
+        int len = alt_query_registry((uint8_t)reg, buf, protocol);
+
+        alt_scan_outcome_t outcome;
+        if (len > 0) {
+            outcome = ALT_SCAN_OK;
+        } else if (s_last_was_not_impl) {
+            outcome = ALT_SCAN_NOT_IMPL;
+        } else if (s_last_bytes > 0) {
+            outcome = ALT_SCAN_BAD_CRC;
+        } else {
+            outcome = ALT_SCAN_SILENT;
+        }
+        s_scan_outcome[reg] = (uint8_t)outcome;
+
+        // Keep the raw bytes for anything that actually answered - those are
+        // the interesting ones, and there are few enough to store.
+        if ((outcome == ALT_SCAN_OK || outcome == ALT_SCAN_BAD_CRC) &&
+            s_scan_hit_count < ALT_SCAN_HITS_MAX) {
+            alt_scan_hit_t *h = &s_scan_hits[s_scan_hit_count++];
+            h->reg_id = (uint8_t)reg;
+            h->bytes = len > 0 ? len : s_last_bytes;
+            h->outcome = outcome;
+            alt_format_buffer(buf, (size_t)h->bytes, h->hex, sizeof(h->hex));
+            ESP_LOGW(TAG, "scan: 0x%02x ANSWERED (%d bytes) %s",
+                     reg, h->bytes, h->hex);
+        }
+
+        s_scan_progress = reg + 1;
+    }
+
+    s_fail_settle_ms = 500;
+    s_diag_suppress = false;
+
+    int ok = 0, ni = 0, bad = 0, sil = 0;
+    alt_scan_totals(&ok, &ni, &bad, &sil);
+    ESP_LOGI(TAG, "scan done: %d ok, %d not-implemented, %d bad CRC, %d silent",
+             ok, ni, bad, sil);
+
+    s_scan_running = false;
+    vTaskDelete(NULL);
+}
+
+void alt_scan_start(char protocol)
+{
+    if (s_scan_running || s_probe_running) {
+        return;
+    }
+    s_scan_running = true;
+    xTaskCreate(&scan_task, "x10a_scan", 4096, (void *)(intptr_t)protocol, 4, NULL);
+}
+
 uint8_t alt_crc(const uint8_t *src, size_t len)
 {
     uint8_t b = 0;
@@ -328,6 +463,8 @@ static int query_registry_locked(uint8_t reg_id, uint8_t *buf, char protocol)
     }
 
     memset(buf, 0, ALT_REPLY_MAX);
+    s_last_was_not_impl = false;
+    s_last_bytes = 0;
 
     // Drop anything still sitting in the RX FIFO, or a stale byte shifts the
     // whole reply and every value decodes as garbage.
@@ -361,8 +498,10 @@ static int query_registry_locked(uint8_t reg_id, uint8_t *buf, char protocol)
         // Error reply, common to both protocols.
         if (len == 2 && buf[0] == 0x15 && buf[1] == 0xea) {
             ESP_LOGW(TAG, "reg 0x%02x: HP returned 0x15 0xEA (command not understood)", reg_id);
+            s_last_was_not_impl = true;
+            s_last_bytes = len;
             diag_record(reg_id, protocol, "HP error 0x15 0xEA", buf, len, false);
-            vTaskDelay(pdMS_TO_TICKS(500));
+            vTaskDelay(pdMS_TO_TICKS(s_fail_settle_ms));
             return -1;
         }
     }
@@ -378,8 +517,9 @@ static int query_registry_locked(uint8_t reg_id, uint8_t *buf, char protocol)
                      reg_id, len, reply_len, hex);
             snprintf(status, sizeof(status), "timeout: %d of %d bytes", len, reply_len);
         }
+        s_last_bytes = len;
         diag_record(reg_id, protocol, status, buf, len, false);
-        vTaskDelay(pdMS_TO_TICKS(500));
+        vTaskDelay(pdMS_TO_TICKS(s_fail_settle_ms));
         return -1;
     }
 
@@ -389,6 +529,7 @@ static int query_registry_locked(uint8_t reg_id, uint8_t *buf, char protocol)
     if (want != buf[len - 1]) {
         ESP_LOGW(TAG, "reg 0x%02x: bad CRC, calculated 0x%02x but got 0x%02x: %s",
                  reg_id, want, buf[len - 1], hex);
+        s_last_bytes = len;
         char status[64];
         snprintf(status, sizeof(status), "bad CRC: want 0x%02x got 0x%02x",
                  want, buf[len - 1]);

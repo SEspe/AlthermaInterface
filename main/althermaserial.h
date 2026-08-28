@@ -73,3 +73,39 @@ void alt_probe_start(void);
 
 // True while a sweep is running.
 bool alt_probe_running(void);
+
+// ---- full register scan -------------------------------------------------
+// Walks every registry ID 0x00-0xFF on one protocol and records which ones the
+// machine actually implements. Protocol S is barely documented - upstream's 40
+// definition files between them use only 0x50, 0x53, 0x54, 0x55 and 0x56, and
+// nobody has published a full scan - so this is the way to find out what THIS
+// unit answers rather than what someone else's did.
+//
+// Read-only: a protocol-S query is <len> <reg> <crc> with no payload, and an
+// unimplemented register answers 0x15 0xEA ("not understood").
+
+#define ALT_SCAN_HITS_MAX 24
+
+// Outcome per registry ID.
+typedef enum {
+    ALT_SCAN_UNTESTED = 0,
+    ALT_SCAN_SILENT,        // nothing came back
+    ALT_SCAN_NOT_IMPL,      // 0x15 0xEA
+    ALT_SCAN_BAD_CRC,       // replied, but the checksum did not agree
+    ALT_SCAN_OK,            // replied with a valid CRC
+} alt_scan_outcome_t;
+
+// Starts the scan in its own task; returns immediately.
+void alt_scan_start(char protocol);
+bool alt_scan_running(void);
+
+// How many registry IDs have been tried so far (0-256).
+int alt_scan_progress(void);
+
+// Tallies across all 256 IDs.
+void alt_scan_totals(int *ok, int *not_impl, int *bad_crc, int *silent);
+
+// Registers that replied, with their raw bytes. Returns false past the end.
+bool alt_scan_hit_at(size_t i, uint8_t *reg_id, const char **hex, int *bytes,
+                     alt_scan_outcome_t *outcome);
+size_t alt_scan_hit_count(void);
