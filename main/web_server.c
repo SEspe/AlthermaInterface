@@ -78,27 +78,6 @@ static const char PAGE[] =
 "<p class='hint' id='rxl'></p>"
 "<table><thead><tr><th>Reg</th><th>Proto</th><th>Last result</th><th>OK/fail</th><th>Raw bytes</th></tr>"
 "</thead><tbody id='diag'><tr><td colspan='5'>no queries yet</td></tr></tbody></table>"
-"<button class='go' onclick='rxcheck()'>Re-check RX line</button> "
-"<button class='go' onclick='probe()'>Probe both protocols</button>"
-"<p class='msg' id='pmsg'></p>"
-"<p class='hint'>Re-check RX reads the level on GPIO16 right now, so a wire can "
-"be moved and re-tested without power-cycling the pump. An idle transmitter "
-"holds its line high; a low reading means nothing is driving it.</p>"
-"<p class='hint'>Asks protocol I on 0x10/0x20/0x21/0x60/0x61 and protocol S on "
-"0x50/0x53/0x54/0x55/0x56. Whichever dialect the machine speaks will answer. "
-"Takes about 25 s; watch the table above.</p>"
-
-"<h3 style='font-size:13px;color:#8b93a1;font-weight:500;margin:26px 0 8px'>"
-"REGISTER SCAN</h3>"
-"<button class='go' onclick='scan()'>Scan all 256 registers</button>"
-"<progress id='sp' value='0' max='256' style='display:none'></progress>"
-"<p class='msg' id='smsg'></p>"
-"<table><tbody id='shits'></tbody></table>"
-"<p class='hint'>Asks every registry ID 0x00-0xFF on the active protocol and "
-"reports which ones this machine implements. Protocol S is barely documented - "
-"upstream's 40 definition files use only five 0x5x registers between them and "
-"no full scan has been published - so anything found here beyond 0x53-0x56 is "
-"new. Read-only, and takes about 2 minutes.</p>"
 "</section>"
 
 "<section><table id='wifi'></table></section>"
@@ -144,35 +123,12 @@ static const char PAGE[] =
 "document.getElementById('vhint').textContent="
 "v.values.length+' of '+v.total+' labels have been read at least once.';"
 "var d=await (await fetch('/api/x10a')).json();"
-"document.getElementById('rxl').textContent='RX line ('+d.rxWhen+'): '+d.rxIdle;"
+"document.getElementById('rxl').textContent='RX line at boot: '+d.rxIdle;"
 "document.getElementById('diag').innerHTML=d.registries.length?d.registries.map(x=>"
 "'<tr><td class=\"r\">'+esc(x.reg)+'</td><td>'+esc(x.proto)+'</td><td>'+esc(x.status)+"
 "'</td><td>'+x.ok+'/'+x.fail+'</td><td class=\"r\">'+esc(x.raw||'-')+'</td></tr>'"
 ").join(''):'<tr><td colspan=\"5\">no queries yet</td></tr>';"
 "}catch(e){}}"
-"async function rxcheck(){var m=document.getElementById('pmsg');m.className='msg';"
-"m.textContent='sampling RX...';"
-"try{var r=await (await fetch('/api/rxcheck',{method:'POST'})).json();"
-"m.textContent='RX line now: '+r.rxIdle;load();}"
-"catch(e){m.className='msg err';m.textContent='Failed: '+e;}}"
-"async function probe(){var m=document.getElementById('pmsg');m.className='msg';"
-"m.textContent='probing both protocols, ~25 s...';"
-"try{await fetch('/api/probe',{method:'POST'});setTimeout(load,26000);}"
-"catch(e){m.className='msg err';m.textContent='Failed: '+e;}}"
-"async function scanpoll(){"
-"var r=await (await fetch('/api/scan')).json();"
-"var p=document.getElementById('sp');var m=document.getElementById('smsg');"
-"p.style.display='block';p.value=r.progress;"
-"m.textContent=(r.running?'scanning ':'done: ')+r.progress+'/256 - '+r.ok+' ok, '"
-"+r.notImpl+' not implemented, '+r.badCrc+' bad CRC, '+r.silent+' silent';"
-"document.getElementById('shits').innerHTML=r.hits.map(x=>"
-"'<tr><td class=\"r\">'+esc(x.reg)+'</td><td>'+esc(x.outcome)+'</td><td>'+x.bytes+"
-"' B</td><td class=\"r\">'+esc(x.raw)+'</td></tr>').join('');"
-"if(r.running)setTimeout(scanpoll,3000);}"
-"async function scan(){var m=document.getElementById('smsg');m.className='msg';"
-"m.textContent='starting...';"
-"try{await fetch('/api/scan',{method:'POST'});setTimeout(scanpoll,1500);}"
-"catch(e){m.className='msg err';m.textContent='Failed: '+e;}}"
 "async function cfg(){var c=await (await fetch('/api/config')).json();"
 "document.getElementById('uri').value=c.uri;document.getElementById('usr').value=c.user;"
 "document.getElementById('pwdh').textContent=c.passSet?"
@@ -274,8 +230,8 @@ static esp_err_t x10a_get(httpd_req_t *req)
     httpd_resp_set_type(req, "application/json");
 
     char head[128];
-    snprintf(head, sizeof(head), "{\"rxIdle\":\"%s\",\"rxWhen\":\"%s\",\"probing\":%s,\"registries\":[",
-             alt_rx_idle_state(), alt_rx_idle_when(), alt_probe_running() ? "true" : "false");
+    snprintf(head, sizeof(head), "{\"rxIdle\":\"%s\",\"registries\":[",
+             alt_rx_idle_state());
     httpd_resp_sendstr_chunk(req, head);
 
     char chunk[420];
@@ -300,83 +256,6 @@ static esp_err_t x10a_get(httpd_req_t *req)
 
     httpd_resp_sendstr_chunk(req, "]}");
     return httpd_resp_sendstr_chunk(req, NULL);
-}
-
-// Asks BOTH protocols across their known registries and records every result,
-// so "is this machine protocol I or S" is answerable from the web UI.
-static esp_err_t probe_post(httpd_req_t *req)
-{
-    alt_probe_start();
-    httpd_resp_sendstr(req, "started");
-    return ESP_OK;
-}
-
-// Walks every registry ID 0x00-0xFF, to find out what this machine actually
-// implements rather than what someone else's did. Protocol S is barely
-// documented: upstream's 40 definition files use only five 0x5x registries
-// between them, and no full scan has been published.
-static esp_err_t scan_post(httpd_req_t *req)
-{
-    alt_scan_start(converter_protocol());
-    httpd_resp_sendstr(req, "started");
-    return ESP_OK;
-}
-
-static const char *scan_outcome_name(alt_scan_outcome_t o)
-{
-    switch (o) {
-    case ALT_SCAN_OK:       return "ok";
-    case ALT_SCAN_NOT_IMPL: return "not implemented";
-    case ALT_SCAN_BAD_CRC:  return "replied, bad CRC";
-    case ALT_SCAN_SILENT:   return "silent";
-    default:                return "untested";
-    }
-}
-
-static esp_err_t scan_get(httpd_req_t *req)
-{
-    int ok = 0, ni = 0, bad = 0, sil = 0;
-    alt_scan_totals(&ok, &ni, &bad, &sil);
-
-    httpd_resp_set_type(req, "application/json");
-
-    char chunk[320];
-    snprintf(chunk, sizeof(chunk),
-             "{\"running\":%s,\"progress\":%d,\"ok\":%d,\"notImpl\":%d,"
-             "\"badCrc\":%d,\"silent\":%d,\"hits\":[",
-             alt_scan_running() ? "true" : "false", alt_scan_progress(),
-             ok, ni, bad, sil);
-    httpd_resp_sendstr_chunk(req, chunk);
-
-    size_t n = alt_scan_hit_count();
-    for (size_t i = 0; i < n; i++) {
-        uint8_t reg = 0;
-        const char *hex = "";
-        int bytes = 0;
-        alt_scan_outcome_t outcome = ALT_SCAN_UNTESTED;
-        if (!alt_scan_hit_at(i, &reg, &hex, &bytes, &outcome)) {
-            continue;
-        }
-        snprintf(chunk, sizeof(chunk),
-                 "%s{\"reg\":\"0x%02x\",\"outcome\":\"%s\",\"bytes\":%d,\"raw\":\"%s\"}",
-                 i ? "," : "", reg, scan_outcome_name(outcome), bytes, hex);
-        httpd_resp_sendstr_chunk(req, chunk);
-    }
-
-    httpd_resp_sendstr_chunk(req, "]}");
-    return httpd_resp_sendstr_chunk(req, NULL);
-}
-
-// Re-reads the RX pin level now, so a wire can be moved and re-checked without
-// power-cycling the heat pump to get a fresh boot-time sample.
-static esp_err_t rxcheck_post(httpd_req_t *req)
-{
-    alt_resample_rx();
-    httpd_resp_set_type(req, "application/json");
-    char body[128];
-    snprintf(body, sizeof(body), "{\"rxIdle\":\"%s\",\"rxWhen\":\"%s\"}",
-             alt_rx_idle_state(), alt_rx_idle_when());
-    return httpd_resp_send(req, body, HTTPD_RESP_USE_STRLEN);
 }
 
 static esp_err_t config_get(httpd_req_t *req)
@@ -537,10 +416,6 @@ esp_err_t alt_web_start(void)
         {.uri = "/api/status",  .method = HTTP_GET,  .handler = status_get},
         {.uri = "/api/values",  .method = HTTP_GET,  .handler = values_get},
         {.uri = "/api/x10a",    .method = HTTP_GET,  .handler = x10a_get},
-        {.uri = "/api/probe",   .method = HTTP_POST, .handler = probe_post},
-        {.uri = "/api/rxcheck", .method = HTTP_POST, .handler = rxcheck_post},
-        {.uri = "/api/scan",    .method = HTTP_POST, .handler = scan_post},
-        {.uri = "/api/scan",    .method = HTTP_GET,  .handler = scan_get},
         {.uri = "/api/config",  .method = HTTP_GET,  .handler = config_get},
         {.uri = "/api/config",  .method = HTTP_POST, .handler = config_post},
         {.uri = "/ota/upload",  .method = HTTP_POST, .handler = ota_post},

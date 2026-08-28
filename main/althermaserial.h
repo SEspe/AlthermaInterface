@@ -57,55 +57,8 @@ void alt_probe_rx_idle(void);
 // Human-readable result of the above ("idle high (line driven)", ...).
 const char *alt_rx_idle_state(void);
 
-// When the reading above was taken: "boot" or "on demand".
-const char *alt_rx_idle_when(void);
-
-// Re-samples the RX pin while the UART driver still owns it, so a wire can be
-// moved and re-checked without power-cycling the heat pump. Reads the pad level
-// directly; the UART routing is left untouched.
-void alt_resample_rx(void);
-
-// Sweeps both protocols across their common registries and records every
-// outcome in the diagnostics table, so "is this machine protocol I or S" can be
-// answered from the web UI without a cable. Runs in its own task; returns
-// immediately. Poll the diagnostics to see results appear.
-void alt_probe_start(void);
-
-// True while a sweep is running.
-bool alt_probe_running(void);
-
-// ---- full register scan -------------------------------------------------
-// Walks every registry ID 0x00-0xFF on one protocol and records which ones the
-// machine actually implements. Protocol S is barely documented - upstream's 40
-// definition files between them use only 0x50, 0x53, 0x54, 0x55 and 0x56, and
-// nobody has published a full scan - so this is the way to find out what THIS
-// unit answers rather than what someone else's did.
-//
-// Read-only: a protocol-S query is <len> <reg> <crc> with no payload, and an
-// unimplemented register answers 0x15 0xEA ("not understood").
-
-#define ALT_SCAN_HITS_MAX 24
-
-// Outcome per registry ID.
-typedef enum {
-    ALT_SCAN_UNTESTED = 0,
-    ALT_SCAN_SILENT,        // nothing came back
-    ALT_SCAN_NOT_IMPL,      // 0x15 0xEA
-    ALT_SCAN_BAD_CRC,       // replied, but the checksum did not agree
-    ALT_SCAN_OK,            // replied with a valid CRC
-} alt_scan_outcome_t;
-
-// Starts the scan in its own task; returns immediately.
-void alt_scan_start(char protocol);
-bool alt_scan_running(void);
-
-// How many registry IDs have been tried so far (0-256).
-int alt_scan_progress(void);
-
-// Tallies across all 256 IDs.
-void alt_scan_totals(int *ok, int *not_impl, int *bad_crc, int *silent);
-
-// Registers that replied, with their raw bytes. Returns false past the end.
-bool alt_scan_hit_at(size_t i, uint8_t *reg_id, const char **hex, int *bytes,
-                     alt_scan_outcome_t *outcome);
-size_t alt_scan_hit_count(void);
+// The protocol sweep, the 256-ID register scan and the on-demand RX re-check
+// were bring-up tools. They did their job - they identified the wiring fault,
+// confirmed protocol S and found registry 0x5A - and were removed once the link
+// was stable, to keep the running firmware free of commands that drive the UART
+// outside the poll loop. See git history and docs/REGISTER_0x5A.md.
