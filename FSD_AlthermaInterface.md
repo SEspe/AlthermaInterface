@@ -29,7 +29,11 @@ the upstream code maps onto it*, and `CLAUDE.md` covers build/verify workflow.
   `sdkconfig` is next regenerated, before phase 3 needs it.
   Verified: builds clean, boots, opens UART1 on GPIO16/15, enumerates 25 labels
   over registries 0x50/0x53/0x54/0x55, and times out cleanly with no heat pump
-  attached. **Not yet verified against the heat pump.**
+  attached. **GPIO15-to-GPIO16 loopback passed** — each query echoed back
+  verbatim (`0x02 0x50 0xad`, `0x02 0x53 0xaa`, `0x02 0x54 0xa9`,
+  `0x02 0x55 0xa8`), all four CRCs correct by hand, which proves both pins, the
+  9600 8E1 setup and the protocol-S framing independently of the heat pump.
+  **Not yet verified against the heat pump.**
 
 - v0.3 — **X10A TX moved to GPIO15 (firmware 0.1.0), §3.1.** As-wired pin map
   is RX = GPIO16, **TX = GPIO15**, not upstream's 16/17. GPIO15 is a strapping
