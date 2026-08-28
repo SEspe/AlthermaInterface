@@ -25,6 +25,7 @@
 // #define PIN_SG1  32
 // #define PIN_SG2  33
 #define SG_RELAY_HIGH_TRIGGER
+
 #if defined(SG_RELAY_LOW_TRIGGER)
 #define SG_RELAY_ACTIVE_STATE   0
 #define SG_RELAY_INACTIVE_STATE 1
@@ -36,3 +37,8 @@
 // ---- Safety relay / preferred electricity tariff (optional) ----
 // #define SAFETY_RELAY_PIN          33
 // #define SAFETY_RELAY_ACTIVE_STATE 1
+
+// ---- GitHub releases ----
+// First-boot default for the repository the device may flash releases from;
+// editable in the Config tab, stored in NVS thereafter.
+#define ALT_GITHUB_REPO_DEFAULT "SEspe/AlthermaInterface"

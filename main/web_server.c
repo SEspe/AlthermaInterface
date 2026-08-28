@@ -10,11 +10,15 @@
 #include "web_server.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "esp_app_desc.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
+#include "esp_crt_bundle.h"
+#include "esp_http_client.h"
+#include "esp_https_ota.h"
 #include "esp_ota_ops.h"
 #include "esp_system.h"
 #include "esp_timer.h"
@@ -66,7 +70,7 @@ static const char PAGE[] =
 "<header><h1>AlthermaInterface<span id='hv'></span></h1></header>"
 "<nav>"
 "<button class='on' onclick='tab(0,this)'>Daikin Data</button>"
-"<button onclick='tab(1,this)'>WiFi</button>"
+"<button onclick='tab(1,this)'>Debug</button>"
 "<button onclick='tab(2,this)'>Config</button>"
 "<button onclick='tab(3,this)'>OTA</button>"
 "</nav><main>"
@@ -74,13 +78,20 @@ static const char PAGE[] =
 "<section class='on'><table><thead><tr><th>Reg</th><th>Value</th><th class='v'>Reading</th></tr>"
 "</thead><tbody id='vals'><tr><td colspan='3'>loading...</td></tr></tbody></table>"
 "<p class='hint' id='vhint'></p>"
-"<h3 style='font-size:13px;color:#8b93a1;font-weight:500;margin:26px 0 8px'>X10A LINK</h3>"
+"</section>"
+
+"<section>"
+"<h3 style='font-size:13px;color:#8b93a1;font-weight:500;margin:0 0 8px'>X10A LINK</h3>"
 "<p class='hint' id='rxl'></p>"
 "<table><thead><tr><th>Reg</th><th>Proto</th><th>Last result</th><th>OK/fail</th><th>Raw bytes</th></tr>"
 "</thead><tbody id='diag'><tr><td colspan='5'>no queries yet</td></tr></tbody></table>"
+"<h3 style='font-size:13px;color:#8b93a1;font-weight:500;margin:26px 0 8px'>WIFI</h3>"
+"<table id='wifi'></table>"
+"<h3 style='font-size:13px;color:#8b93a1;font-weight:500;margin:26px 0 8px'>MQTT</h3>"
+"<table id='mq'></table>"
+"<h3 style='font-size:13px;color:#8b93a1;font-weight:500;margin:26px 0 8px'>DEVICE</h3>"
+"<table id='dev'></table>"
 "</section>"
-
-"<section><table id='wifi'></table></section>"
 
 "<section>"
 "<label>Broker URI</label><input id='uri' placeholder='mqtt://192.168.1.4:1883'>"
@@ -88,19 +99,56 @@ static const char PAGE[] =
 "<label>Username</label><input id='usr' autocomplete='off'>"
 "<label>Password</label><input id='pwd' type='password' autocomplete='new-password'>"
 "<p class='hint' id='pwdh'></p>"
+
+"<h3 style='font-size:13px;color:#8b93a1;font-weight:500;margin:26px 0 8px'>"
+"X10A PINS</h3>"
+"<label>RX (GPIO) &mdash; to the X10A TX pin</label>"
+"<input id='rxp' type='number' min='0' max='39' style='max-width:120px'>"
+"<label>TX (GPIO) &mdash; to the X10A RX pin</label>"
+"<input id='txp' type='number' min='0' max='39' style='max-width:120px'>"
+"<p class='hint'>Defaults are RX 16 / TX 15. GPIO6-11 are the SPI flash and are "
+"refused; GPIO34-39 are input-only so cannot be TX. A wrong pin costs the heat "
+"pump link but not the device &mdash; WiFi and this page still come up, so it "
+"can be corrected from here.</p>"
+
+"<h3 style='font-size:13px;color:#8b93a1;font-weight:500;margin:26px 0 8px'>"
+"FIRMWARE SOURCE</h3>"
+"<label>GitHub repository (owner/name)</label><input id='ghr'>"
+"<p class='hint'>Releases of this repository are the only images the device "
+"will download and flash.</p>"
+
 "<button class='go' onclick='save()'>Save and reboot</button>"
 "<p class='msg' id='cmsg'></p></section>"
 
 "<section>"
-"<label>Firmware image (build/AlthermaInterface.bin)</label>"
+"<h3 style='font-size:13px;color:#8b93a1;font-weight:500;margin:0 0 8px'>"
+"FIRMWARE UPDATE</h3>"
+"<p class='hint' id='rv'></p>"
+"<p class='hint'>Upload an AlthermaInterface-vX.Y.Z.bin release. The device "
+"writes it to the inactive slot and boots straight into it; if the new image "
+"never starts cleanly, the previous version is restored automatically at the "
+"next boot (dual OTA partitions, FSD &sect;9) &mdash; a bad upload cannot brick "
+"the device. Do not cut power mid-upload.</p>"
 "<input id='fw' type='file' accept='.bin'>"
-"<button class='go' onclick='ota()'>Upload and reboot</button>"
+"<button class='go' onclick='ota()'>Upload and flash</button>"
 "<progress id='pg' value='0' max='100' style='display:none'></progress>"
 "<p class='msg' id='omsg'></p>"
-"<p class='hint'>Dual OTA slots with rollback: an image that fails to boot is "
-"reverted automatically on the next start.</p></section>"
+
+"<h3 style='font-size:13px;color:#8b93a1;font-weight:500;margin:26px 0 8px'>"
+"FLASH FROM GITHUB RELEASE</h3>"
+"<p class='hint'>Fetch a published release directly &mdash; the device downloads "
+"and flashes it itself over HTTPS, no PC needed. Locked to this project's "
+"releases; same dual-partition rollback as a manual upload.</p>"
+"<select id='ghRel' style='max-width:380px;padding:8px;background:#1c1f26;"
+"border:1px solid #333a46;border-radius:4px;color:#e6e6e6'>"
+"<option>Loading releases&hellip;</option></select> "
+"<button class='go' onclick='ghLoad()'>&#8635; Reload</button> "
+"<button class='go' onclick='ghFlash()'>&#8681; Download and flash</button>"
+"<progress id='gpg' value='0' max='100' style='display:none'></progress>"
+"<p class='msg' id='gmsg'></p></section>"
 
 "</main><script>"
+"var RUNNING='';"
 "function tab(i,b){"
 "document.querySelectorAll('section').forEach((s,n)=>s.className=n==i?'on':'');"
 "document.querySelectorAll('nav button').forEach(x=>x.className='');b.className='on';}"
@@ -109,13 +157,21 @@ static const char PAGE[] =
 "async function load(){"
 "try{"
 "var s=await (await fetch('/api/status')).json();"
-"document.getElementById('hv').textContent='v'+s.version+' - '+s.ip;"
+"document.getElementById('hv').textContent='v'+s.version+' - '+s.ip;RUNNING=s.version;"
+"document.getElementById('rv').textContent='Running version: v'+s.version+'  (slot '+s.partition+')';"
 "document.getElementById('wifi').innerHTML="
-"row('SSID',s.ssid)+row('IP address',s.ip)+row('RSSI',s.rssi+' dBm')+"
-"row('Channel',s.channel)+row('BSSID',s.bssid)+row('WiFi',s.wifi?'connected':'down')+"
-"row('MQTT',s.mqtt?'connected':'down')+row('Broker',s.broker)+"
-"row('Protocol',s.protocol)+row('Refrigerant',s.refrigerant)+"
-"row('OTA slot',s.partition)+row('Reset reason',s.resetReason)+row('Free heap',s.heap+' bytes')+row('Uptime',s.uptime+' s')+row('Firmware',s.version);"
+"row('Status',s.wifi?'connected':'down')+row('SSID',s.ssid)+row('IP address',s.ip)+"
+"row('RSSI',s.rssi+' dBm')+row('Channel',s.channel)+row('BSSID',s.bssid);"
+"document.getElementById('mq').innerHTML="
+"row('Status',s.mqtt?'connected':'down')+row('Broker',s.broker)+"
+"row('Messages published',s.pubOk)+row('Publish failures',s.pubFail)+"
+"row('Connects',s.connects)+row('Disconnects',s.disconnects)+"
+"row('Last publish',s.lastPub<0?'never':s.lastPub+' s ago');"
+"document.getElementById('dev').innerHTML="
+"row('Firmware','v'+s.version)+row('OTA slot',s.partition)+"
+"row('Reset reason',s.resetReason)+row('Free heap',s.heap+' bytes')+"
+"row('Uptime',s.uptime+' s')+row('X10A protocol',s.protocol)+"
+"row('Refrigerant',s.refrigerant)+row('X10A pins','RX '+s.rxPin+' / TX '+s.txPin);"
 "var v=await (await fetch('/api/values')).json();"
 "document.getElementById('vals').innerHTML=v.values.length?v.values.map(x=>"
 "'<tr><td class=\"r\">'+esc(x.reg)+'</td><td>'+esc(x.label)+'</td><td class=\"v\">'+esc(x.value)+'</td></tr>'"
@@ -129,13 +185,48 @@ static const char PAGE[] =
 "'</td><td>'+x.ok+'/'+x.fail+'</td><td class=\"r\">'+esc(x.raw||'-')+'</td></tr>'"
 ").join(''):'<tr><td colspan=\"5\">no queries yet</td></tr>';"
 "}catch(e){}}"
+"var GH='';"
 "async function cfg(){var c=await (await fetch('/api/config')).json();"
 "document.getElementById('uri').value=c.uri;document.getElementById('usr').value=c.user;"
+"document.getElementById('rxp').value=c.rxPin;document.getElementById('txp').value=c.txPin;"
+"document.getElementById('ghr').value=c.repo;GH=c.repo;"
 "document.getElementById('pwdh').textContent=c.passSet?"
-"'A password is stored. Leave blank to keep it.':'No password stored.';}"
+"'A password is stored. Leave blank to keep it.':'No password stored.';"
+"ghLoad();}"
+"async function ghLoad(){var s=document.getElementById('ghRel');"
+"if(!GH){s.innerHTML='<option>no repository configured</option>';return;}"
+"s.innerHTML='<option>Loading releases\\u2026</option>';"
+"try{var r=await fetch('https://api.github.com/repos/'+GH+'/releases?per_page=100');"
+"if(!r.ok){s.innerHTML='<option>GitHub returned '+r.status+'</option>';return;}"
+"var rel=await r.json();var o='',n=0;"
+"rel.forEach(x=>{(x.assets||[]).forEach(a=>{"
+"if(!a.name.endsWith('.bin'))return;n++;"
+"var run=RUNNING&&x.tag_name.replace(/^v/,'')==RUNNING?' (running)':'';"
+"o+='<option value=\"'+esc(a.browser_download_url)+'\">'+esc(x.tag_name)+run+"
+"' \\u2013 '+Math.round(a.size/1024)+' KB</option>';})});"
+"s.innerHTML=n?o:'<option>no releases with a .bin asset</option>';}"
+"catch(e){s.innerHTML='<option>could not reach GitHub</option>';}}"
+"async function ghPoll(){var r=await (await fetch('/ota/from-url')).json();"
+"var m=document.getElementById('gmsg');var p=document.getElementById('gpg');"
+"if(r.total>0){p.style.display='block';p.value=100*r.read/r.total;}"
+"if(r.state=='running'){m.textContent='downloading '+Math.round(r.read/1024)+' KB'"
+"+(r.total?' of '+Math.round(r.total/1024)+' KB':'');setTimeout(ghPoll,1500);}"
+"else if(r.state=='done'){m.textContent=r.msg;}"
+"else if(r.state=='failed'){m.className='msg err';m.textContent='Failed: '+r.msg;}}"
+"async function ghFlash(){var s=document.getElementById('ghRel');"
+"var m=document.getElementById('gmsg');m.className='msg';"
+"var u=s.value;if(!u||u.indexOf('http')!=0){m.className='msg err';"
+"m.textContent='Select a release first.';return;}"
+"m.textContent='starting\\u2026';"
+"try{var r=await fetch('/ota/from-url',{method:'POST',body:u});"
+"if(!r.ok){m.className='msg err';m.textContent='Failed: '+await r.text();return;}"
+"setTimeout(ghPoll,1200);}"
+"catch(e){m.className='msg err';m.textContent='Failed: '+e;}}"
 "async function save(){var m=document.getElementById('cmsg');m.className='msg';m.textContent='saving...';"
 "var b={uri:document.getElementById('uri').value,user:document.getElementById('usr').value,"
-"pass:document.getElementById('pwd').value};"
+"pass:document.getElementById('pwd').value,"
+"rxPin:document.getElementById('rxp').value,txPin:document.getElementById('txp').value,"
+"repo:document.getElementById('ghr').value};"
 "try{var r=await fetch('/api/config',{method:'POST',body:JSON.stringify(b)});"
 "m.textContent=r.ok?'Saved. Rebooting...':'Failed: '+await r.text();"
 "if(!r.ok)m.className='msg err';}catch(e){m.className='msg err';m.textContent='Failed: '+e;}}"
@@ -172,12 +263,18 @@ static esp_err_t status_get(httpd_req_t *req)
     // "did the slot actually change" is exactly the question worth answering.
     const esp_partition_t *run = esp_ota_get_running_partition();
 
-    char body[700];
+    uint32_t pub_ok = 0, pub_fail = 0, connects = 0, disconnects = 0;
+    int64_t last_pub = 0;
+    alt_mqtt_stats(&pub_ok, &pub_fail, &connects, &disconnects, &last_pub);
+
+    char body[900];
     snprintf(body, sizeof(body),
              "{\"version\":\"%s\",\"ssid\":\"%s\",\"ip\":\"%s\",\"rssi\":%d,"
              "\"channel\":%d,\"bssid\":\"%s\",\"wifi\":%s,\"mqtt\":%s,"
              "\"broker\":\"%s\",\"protocol\":\"%c\",\"refrigerant\":%d,"
-             "\"partition\":\"%s\",\"resetReason\":%d,\"heap\":%u,\"uptime\":%lld}",
+             "\"partition\":\"%s\",\"resetReason\":%d,\"heap\":%u,\"uptime\":%lld,"
+             "\"rxPin\":%d,\"txPin\":%d,\"pubOk\":%u,\"pubFail\":%u,"
+             "\"connects\":%u,\"disconnects\":%u,\"lastPub\":%lld}",
              FIRMWARE_VERSION, alt_wifi_ssid(), ip, alt_wifi_rssi(),
              alt_wifi_channel(), bssid,
              alt_wifi_is_connected() ? "true" : "false",
@@ -186,7 +283,11 @@ static esp_err_t status_get(httpd_req_t *req)
              run ? run->label : "?",
              (int)esp_reset_reason(),
              (unsigned)esp_get_free_heap_size(),
-             esp_timer_get_time() / 1000000);
+             esp_timer_get_time() / 1000000,
+             alt_settings_rx_pin(), alt_settings_tx_pin(),
+             (unsigned)pub_ok, (unsigned)pub_fail,
+             (unsigned)connects, (unsigned)disconnects,
+             last_pub ? (esp_timer_get_time() / 1000 - last_pub) / 1000 : -1);
 
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_send(req, body, HTTPD_RESP_USE_STRLEN);
@@ -263,9 +364,12 @@ static esp_err_t config_get(httpd_req_t *req)
     char body[320];
     // The stored password is deliberately never sent to the browser; the UI
     // only learns whether one exists.
-    snprintf(body, sizeof(body), "{\"uri\":\"%s\",\"user\":\"%s\",\"passSet\":%s}",
+    snprintf(body, sizeof(body),
+             "{\"uri\":\"%s\",\"user\":\"%s\",\"passSet\":%s,"
+             "\"rxPin\":%d,\"txPin\":%d,\"repo\":\"%s\"}",
              alt_settings_mqtt_uri(), alt_settings_mqtt_user(),
-             alt_settings_mqtt_pass_set() ? "true" : "false");
+             alt_settings_mqtt_pass_set() ? "true" : "false",
+             alt_settings_rx_pin(), alt_settings_tx_pin(), alt_settings_gh_repo());
 
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_send(req, body, HTTPD_RESP_USE_STRLEN);
@@ -320,6 +424,33 @@ static esp_err_t config_post(httpd_req_t *req)
     json_field(body, "user", user, sizeof(user));
     bool has_pass = json_field(body, "pass", pass, sizeof(pass)) && pass[0] != '\0';
 
+    char repo[ALT_SETTING_MAX] = {0};
+    if (json_field(body, "repo", repo, sizeof(repo)) && repo[0] != 0) {
+        alt_settings_set_gh_repo(repo);
+    }
+
+    // Pins are optional in the body; absent means "leave them alone".
+    char rxs[8] = {0};
+    char txs[8] = {0};
+    if (json_field(body, "rxPin", rxs, sizeof(rxs)) &&
+        json_field(body, "txPin", txs, sizeof(txs))) {
+        int rx = atoi(rxs);
+        int tx = atoi(txs);
+        const char *bad = alt_settings_check_pins(rx, tx);
+        if (bad) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, bad);
+            return ESP_FAIL;
+        }
+        // Saved before the MQTT settings so a failure here cannot leave the
+        // broker updated and the pin map not.
+        esp_err_t perr = alt_settings_set_pins(rx, tx);
+        if (perr != ESP_OK) {
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                                esp_err_to_name(perr));
+            return ESP_FAIL;
+        }
+    }
+
     // A blank password field means "keep what is stored", so the user does not
     // have to retype it to change the broker address.
     esp_err_t err = alt_settings_set_mqtt(uri, user, has_pass ? pass : NULL);
@@ -335,6 +466,144 @@ static esp_err_t config_post(httpd_req_t *req)
     ESP_LOGI(TAG, "config saved, rebooting");
     xTaskCreate(&reboot_task, "reboot", 2048, NULL, 5, NULL);
     return ESP_OK;
+}
+
+// ----------------------------------------------- OTA from a GitHub release
+//
+// The browser can LIST releases — the GitHub API sends CORS `*` — but it cannot
+// download the .bin, because the release asset host sends no CORS header at
+// all. So the page picks a release and the device fetches and flashes it
+// itself over TLS.
+//
+// Repo-locked: the URL must begin with the configured repository's release
+// download prefix, so this can only ever install this project's own releases,
+// never an arbitrary binary pointed at the endpoint. esp_https_ota does
+// begin/write/verify/set-boot and inherits the same dual-slot rollback as a
+// manual upload.
+
+typedef enum { OTAU_IDLE = 0, OTAU_RUNNING, OTAU_DONE, OTAU_FAILED } otau_state_t;
+
+static volatile otau_state_t s_otau_state = OTAU_IDLE;
+static volatile int s_otau_read, s_otau_total;
+static char s_otau_msg[96];
+static char s_otau_url[320];
+
+static void otau_fail(const char *m)
+{
+    snprintf(s_otau_msg, sizeof(s_otau_msg), "%s", m);
+    s_otau_state = OTAU_FAILED;
+    ESP_LOGE(TAG, "OTA from URL failed: %s", m);
+}
+
+static void otau_task(void *arg)
+{
+    (void)arg;
+    esp_http_client_config_t http_cfg = {
+        .url               = s_otau_url,
+        .crt_bundle_attach = esp_crt_bundle_attach,
+        .timeout_ms        = 20000,
+        .keep_alive_enable = true,
+        .buffer_size       = 2048,
+        .buffer_size_tx    = 4096,   // GitHub's signed redirect URL is ~900 chars
+    };
+    esp_https_ota_config_t ota_cfg = { .http_config = &http_cfg };
+    esp_https_ota_handle_t h = NULL;
+
+    esp_err_t err = esp_https_ota_begin(&ota_cfg, &h);
+    if (err != ESP_OK || h == NULL) {
+        otau_fail("could not connect to GitHub");
+        vTaskDelete(NULL);
+        return;
+    }
+
+    s_otau_total = esp_https_ota_get_image_size(h);
+    do {
+        err = esp_https_ota_perform(h);
+        s_otau_read = esp_https_ota_get_image_len_read(h);
+    } while (err == ESP_ERR_HTTPS_OTA_IN_PROGRESS);
+
+    if (err == ESP_OK && esp_https_ota_is_complete_data_received(h)) {
+        err = esp_https_ota_finish(h);
+        if (err == ESP_OK) {
+            snprintf(s_otau_msg, sizeof(s_otau_msg), "downloaded %d KB - rebooting",
+                     s_otau_read / 1024);
+            s_otau_state = OTAU_DONE;
+            ESP_LOGW(TAG, "OTA from URL complete, rebooting into the new image");
+            vTaskDelay(pdMS_TO_TICKS(800));
+            esp_restart();
+        } else {
+            otau_fail(err == ESP_ERR_OTA_VALIDATE_FAILED ? "image failed validation"
+                                                         : "flash finalize failed");
+        }
+    } else {
+        esp_https_ota_abort(h);
+        otau_fail("download interrupted");
+    }
+    vTaskDelete(NULL);
+}
+
+// Only this project's own release assets, and nothing that could traverse away
+// from them.
+static bool otau_url_allowed(const char *u)
+{
+    char prefix[192];
+    snprintf(prefix, sizeof(prefix), "https://github.com/%s/releases/download/",
+             alt_settings_gh_repo());
+    return strncmp(u, prefix, strlen(prefix)) == 0 &&
+           strstr(u, "..") == NULL && strchr(u, ' ') == NULL &&
+           strlen(u) < sizeof(s_otau_url);
+}
+
+static esp_err_t otau_post(httpd_req_t *req)
+{
+    if (s_otau_state == OTAU_RUNNING) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "already running");
+        return ESP_FAIL;
+    }
+
+    char body[352];
+    int len = req->content_len < (int)sizeof(body) - 1 ? req->content_len
+                                                       : (int)sizeof(body) - 1;
+    int got = httpd_req_recv(req, body, len);
+    if (got <= 0) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "empty body");
+        return ESP_FAIL;
+    }
+    body[got] = '\0';
+    while (got > 0 && (body[got - 1] == '\n' || body[got - 1] == '\r')) {
+        body[--got] = '\0';
+    }
+
+    if (!otau_url_allowed(body)) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
+                            "URL is not a release asset of the configured repo");
+        return ESP_FAIL;
+    }
+
+    strlcpy(s_otau_url, body, sizeof(s_otau_url));
+    s_otau_read = 0;
+    s_otau_total = 0;
+    s_otau_msg[0] = '\0';
+    s_otau_state = OTAU_RUNNING;
+    ESP_LOGI(TAG, "OTA from URL: %s", s_otau_url);
+    // 8 KB: TLS handshake plus the HTTPS OTA machinery.
+    xTaskCreate(&otau_task, "ota_url", 8192, NULL, 5, NULL);
+
+    httpd_resp_sendstr(req, "started");
+    return ESP_OK;
+}
+
+static esp_err_t otau_get(httpd_req_t *req)
+{
+    const char *st = s_otau_state == OTAU_RUNNING ? "running"
+                   : s_otau_state == OTAU_DONE    ? "done"
+                   : s_otau_state == OTAU_FAILED  ? "failed" : "idle";
+    char body[192];
+    snprintf(body, sizeof(body),
+             "{\"state\":\"%s\",\"read\":%d,\"total\":%d,\"msg\":\"%s\"}",
+             st, s_otau_read, s_otau_total, s_otau_msg);
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_send(req, body, HTTPD_RESP_USE_STRLEN);
 }
 
 // -------------------------------------------------------------------- OTA
@@ -419,6 +688,8 @@ esp_err_t alt_web_start(void)
         {.uri = "/api/config",  .method = HTTP_GET,  .handler = config_get},
         {.uri = "/api/config",  .method = HTTP_POST, .handler = config_post},
         {.uri = "/ota/upload",  .method = HTTP_POST, .handler = ota_post},
+        {.uri = "/ota/from-url",.method = HTTP_POST, .handler = otau_post},
+        {.uri = "/ota/from-url",.method = HTTP_GET,  .handler = otau_get},
     };
     for (size_t i = 0; i < sizeof(routes) / sizeof(routes[0]); i++) {
         ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &routes[i]));

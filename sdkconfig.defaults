@@ -30,3 +30,16 @@ CONFIG_MQTT_BUFFER_SIZE=8192
 CONFIG_HTTPD_MAX_REQ_HDR_LEN=4096
 CONFIG_HTTPD_MAX_URI_LEN=512
 CONFIG_LWIP_MAX_SOCKETS=16
+
+# HTTPS OTA from GitHub releases: the device downloads a release asset itself
+# over TLS, because the browser cannot - the GitHub API sends CORS "*" so the
+# release LIST is fetchable from the page, but the asset host sends no CORS
+# header at all. The bundle validates GitHub's certificate; dynamic buffers keep
+# the TLS heap peak small.
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
+CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
+# Needed whenever the chain's root is cross-signed. Without it the bundle
+# callback returns a fatal error with NO cert-verify flag set, which surfaces as
+# a bare connect failure and reads exactly like a network problem. Costs ~700 B.
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_CROSS_SIGNED_VERIFY=y

@@ -7,6 +7,7 @@
 // setup, or a second unit still running upstream's firmware, needs no change.
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #include "esp_err.h"
 
@@ -23,6 +24,10 @@ bool alt_mqtt_is_connected(void);
 // espaltherma/ATTR, in upstream's format. Call once per poll cycle, after all
 // registries have been read.
 esp_err_t alt_mqtt_publish_values(void);
+
+// Broker activity counters for the Debug tab. Any pointer may be NULL.
+void alt_mqtt_stats(uint32_t *ok, uint32_t *fail, uint32_t *connects,
+                    uint32_t *disconnects, int64_t *last_pub_ms);
 
 // Mirrors ESP_LOGx output to espaltherma/log, as upstream's MQTTSerial does.
 // Call after alt_mqtt_start().

@@ -17,6 +17,7 @@
 #include "freertos/task.h"
 
 #include "board_config.h"
+#include "settings.h"
 
 static const char *TAG = "x10a";
 
@@ -121,7 +122,7 @@ static void classify_rx(void)
     int highs = 0;
     const int samples = 200;
     for (int i = 0; i < samples; i++) {
-        highs += gpio_get_level(ALT_UART_RX_PIN);
+        highs += gpio_get_level(alt_settings_rx_pin());
         esp_rom_delay_us(250);
     }
 
@@ -142,7 +143,7 @@ void alt_probe_rx_idle(void)
     // anything driving it (or is shorted to ground). No pull is enabled: a pull
     // would manufacture the very level we are trying to measure.
     const gpio_config_t io = {
-        .pin_bit_mask = 1ULL << ALT_UART_RX_PIN,
+        .pin_bit_mask = 1ULL << alt_settings_rx_pin(),
         .mode = GPIO_MODE_INPUT,
         .pull_up_en = GPIO_PULLUP_DISABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
@@ -154,7 +155,7 @@ void alt_probe_rx_idle(void)
     }
 
     classify_rx();
-    ESP_LOGI(TAG, "RX GPIO%d before UART init: %s", ALT_UART_RX_PIN, s_rx_idle);
+    ESP_LOGI(TAG, "RX GPIO%d before UART init: %s", alt_settings_rx_pin(), s_rx_idle);
 }
 
 uint8_t alt_crc(const uint8_t *src, size_t len)
@@ -194,7 +195,7 @@ esp_err_t alt_serial_init(void)
     if (err != ESP_OK) {
         return err;
     }
-    err = uart_set_pin(ALT_UART_PORT, ALT_UART_TX_PIN, ALT_UART_RX_PIN,
+    err = uart_set_pin(ALT_UART_PORT, alt_settings_tx_pin(), alt_settings_rx_pin(),
                        UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
     if (err != ESP_OK) {
         return err;
@@ -203,7 +204,7 @@ esp_err_t alt_serial_init(void)
     s_uart_lock = xSemaphoreCreateMutex();
 
     ESP_LOGI(TAG, "UART%d up: RX=GPIO%d TX=GPIO%d, %d 8E1",
-             (int)ALT_UART_PORT, ALT_UART_RX_PIN, ALT_UART_TX_PIN, ALT_UART_BAUD);
+             (int)ALT_UART_PORT, alt_settings_rx_pin(), alt_settings_tx_pin(), ALT_UART_BAUD);
     return ESP_OK;
 }
 

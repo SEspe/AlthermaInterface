@@ -9,6 +9,7 @@
 #include "nvs.h"
 #include "nvs_flash.h"
 
+#include "board_config.h"
 #include "secrets.h"
 
 static const char *TAG = "settings";
@@ -17,10 +18,17 @@ static const char *TAG = "settings";
 #define KEY_MQTT_URI  "mqtt_uri"
 #define KEY_MQTT_USER "mqtt_user"
 #define KEY_MQTT_PASS "mqtt_pass"
+#define KEY_RX_PIN    "rx_pin"
+#define KEY_TX_PIN    "tx_pin"
+#define KEY_GH_REPO   "gh_repo"
 
 static char s_uri[ALT_SETTING_MAX];
 static char s_user[ALT_SETTING_MAX];
 static char s_pass[ALT_SETTING_MAX];
+static int  s_rx_pin = ALT_UART_RX_PIN;
+static int  s_tx_pin = ALT_UART_TX_PIN;
+// owner/name of the GitHub repo whose releases the device may flash from.
+static char s_gh_repo[ALT_SETTING_MAX] = ALT_GITHUB_REPO_DEFAULT;
 
 // Reads one string key, leaving the caller's default in place if it is absent.
 static void load_str(nvs_handle_t h, const char *key, char *out, size_t len)
@@ -53,11 +61,95 @@ esp_err_t alt_settings_init(void)
     load_str(h, KEY_MQTT_URI,  s_uri,  sizeof(s_uri));
     load_str(h, KEY_MQTT_USER, s_user, sizeof(s_user));
     load_str(h, KEY_MQTT_PASS, s_pass, sizeof(s_pass));
+    load_str(h, KEY_GH_REPO,   s_gh_repo, sizeof(s_gh_repo));
+
+    int32_t v = 0;
+    if (nvs_get_i32(h, KEY_RX_PIN, &v) == ESP_OK) s_rx_pin = (int)v;
+    if (nvs_get_i32(h, KEY_TX_PIN, &v) == ESP_OK) s_tx_pin = (int)v;
+
+    // A stored pair that somehow fails validation is discarded rather than
+    // used: booting with GPIO6-11 as a UART pin would not come back.
+    const char *bad = alt_settings_check_pins(s_rx_pin, s_tx_pin);
+    if (bad) {
+        ESP_LOGE(TAG, "stored pin map rejected (%s); falling back to RX=%d TX=%d",
+                 bad, ALT_UART_RX_PIN, ALT_UART_TX_PIN);
+        s_rx_pin = ALT_UART_RX_PIN;
+        s_tx_pin = ALT_UART_TX_PIN;
+    }
     nvs_close(h);
 
-    ESP_LOGI(TAG, "broker %s, user \"%s\", password %s",
-             s_uri, s_user, s_pass[0] ? "set" : "empty");
+    ESP_LOGI(TAG, "broker %s, user \"%s\", password %s, X10A RX=GPIO%d TX=GPIO%d",
+             s_uri, s_user, s_pass[0] ? "set" : "empty", s_rx_pin, s_tx_pin);
     return ESP_OK;
+}
+
+const char *alt_settings_gh_repo(void) { return s_gh_repo; }
+
+esp_err_t alt_settings_set_gh_repo(const char *repo)
+{
+    if (!repo) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    strlcpy(s_gh_repo, repo, sizeof(s_gh_repo));
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = nvs_set_str(h, KEY_GH_REPO, s_gh_repo);
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
+    return err;
+}
+
+int alt_settings_rx_pin(void) { return s_rx_pin; }
+int alt_settings_tx_pin(void) { return s_tx_pin; }
+
+const char *alt_settings_check_pins(int rx, int tx)
+{
+    if (rx < 0 || rx > 39 || tx < 0 || tx > 39) {
+        return "pins must be 0-39";
+    }
+    if (rx == tx) {
+        return "RX and TX must differ";
+    }
+    // GPIO6-11 are the SPI flash bus. Handing one to the UART does not just
+    // fail to work, it stops the chip booting - and this device has no USB
+    // attached, so that would mean opening the heat pump to recover it.
+    if ((rx >= 6 && rx <= 11) || (tx >= 6 && tx <= 11)) {
+        return "GPIO6-11 are wired to the SPI flash";
+    }
+    // 34-39 have no output driver on the ESP32.
+    if (tx >= 34) {
+        return "GPIO34-39 are input-only, cannot be TX";
+    }
+    return NULL;
+}
+
+esp_err_t alt_settings_set_pins(int rx, int tx)
+{
+    if (alt_settings_check_pins(rx, tx) != NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    s_rx_pin = rx;
+    s_tx_pin = tx;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = nvs_set_i32(h, KEY_RX_PIN, (int32_t)rx);
+    if (err == ESP_OK) err = nvs_set_i32(h, KEY_TX_PIN, (int32_t)tx);
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
+
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "saved X10A pins RX=GPIO%d TX=GPIO%d", rx, tx);
+    }
+    return err;
 }
 
 const char *alt_settings_mqtt_uri(void)  { return s_uri; }

@@ -15,6 +15,7 @@
 
 #include "esp_log.h"
 #include "esp_system.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "mqtt_client.h"
@@ -34,6 +35,12 @@ static esp_mqtt_client_handle_t s_client;
 static volatile bool s_connected;
 static char s_json[ALT_JSON_MAX];
 
+// Broker activity, shown in the Debug tab. A device that looks "connected" but
+// has published nothing for an hour is a different fault from one that cannot
+// connect at all, and the counters are what tell them apart.
+static uint32_t s_pub_ok, s_pub_fail, s_connects, s_disconnects;
+static int64_t  s_last_pub_ms;
+
 static void on_mqtt_event(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
     (void)arg;
@@ -45,6 +52,7 @@ static void on_mqtt_event(void *arg, esp_event_base_t base, int32_t id, void *da
         s_connected = true;
         ESP_LOGI(TAG, "connected to %s", alt_settings_mqtt_uri());
         // Retained, so a subscriber that connects later still learns we are up.
+        s_connects++;
         esp_mqtt_client_publish(s_client, ALT_MQTT_TOPIC_LWT, "Online", 0, 0, 1);
 
         // Retained discovery, republished on every connect: Home Assistant
@@ -66,6 +74,7 @@ static void on_mqtt_event(void *arg, esp_event_base_t base, int32_t id, void *da
 
     case MQTT_EVENT_DISCONNECTED:
         s_connected = false;
+        s_disconnects++;
         ESP_LOGW(TAG, "disconnected");
         break;
 
@@ -180,11 +189,24 @@ esp_err_t alt_mqtt_publish_values(void)
 
     int msg = esp_mqtt_client_publish(s_client, ALT_MQTT_TOPIC_ATTR, s_json, 0, 0, 0);
     if (msg < 0) {
+        s_pub_fail++;
         ESP_LOGE(TAG, "publish failed");
         return ESP_FAIL;
     }
+    s_pub_ok++;
+    s_last_pub_ms = esp_timer_get_time() / 1000;
     ESP_LOGI(TAG, "published %u bytes to %s", (unsigned)strlen(s_json), ALT_MQTT_TOPIC_ATTR);
     return ESP_OK;
+}
+
+void alt_mqtt_stats(uint32_t *ok, uint32_t *fail, uint32_t *connects,
+                    uint32_t *disconnects, int64_t *last_pub_ms)
+{
+    if (ok)          *ok          = s_pub_ok;
+    if (fail)        *fail        = s_pub_fail;
+    if (connects)    *connects    = s_connects;
+    if (disconnects) *disconnects = s_disconnects;
+    if (last_pub_ms) *last_pub_ms = s_last_pub_ms;
 }
 
 // ---------------------------------------------------------------- log mirror
