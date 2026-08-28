@@ -605,6 +605,17 @@ size_t converter_label_count(void)
     return kLabelCount;
 }
 
+bool converter_label_meta(size_t i, const char **label, int *convid, int *data_type)
+{
+    if (i >= kLabelCount) {
+        return false;
+    }
+    if (label)     *label     = labelDefs[i].label;
+    if (convid)    *convid    = labelDefs[i].convid;
+    if (data_type) *data_type = labelDefs[i].dataType;
+    return true;
+}
+
 bool converter_label_at(size_t i, uint8_t *reg_id, const char **label, const char **value)
 {
     if (i >= kLabelCount) {

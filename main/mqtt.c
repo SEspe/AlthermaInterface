@@ -20,6 +20,7 @@
 #include "mqtt_client.h"
 
 #include "converters.h"
+#include "homeassistant.h"
 #include "settings.h"
 #include "wifi.h"
 
@@ -40,12 +41,28 @@ static void on_mqtt_event(void *arg, esp_event_base_t base, int32_t id, void *da
     esp_mqtt_event_handle_t e = (esp_mqtt_event_handle_t)data;
 
     switch ((esp_mqtt_event_id_t)id) {
-    case MQTT_EVENT_CONNECTED:
+    case MQTT_EVENT_CONNECTED: {
         s_connected = true;
         ESP_LOGI(TAG, "connected to %s", alt_settings_mqtt_uri());
         // Retained, so a subscriber that connects later still learns we are up.
         esp_mqtt_client_publish(s_client, ALT_MQTT_TOPIC_LWT, "Online", 0, 0, 1);
+
+        // Retained discovery, republished on every connect: Home Assistant
+        // rebuilds the entities from it after a restart of either end.
+        size_t dlen = 0;
+        const char *discovery = alt_ha_discovery_payload(&dlen);
+        if (discovery && dlen > 0) {
+            int msg_id = esp_mqtt_client_publish(s_client, ALT_HA_DISCOVERY_TOPIC,
+                                                 discovery, (int)dlen, 0, 1);
+            if (msg_id < 0) {
+                ESP_LOGE(TAG, "discovery publish failed (%u bytes) - is the "
+                              "MQTT buffer large enough?", (unsigned)dlen);
+            } else {
+                ESP_LOGI(TAG, "published HA discovery, %u bytes", (unsigned)dlen);
+            }
+        }
         break;
+    }
 
     case MQTT_EVENT_DISCONNECTED:
         s_connected = false;
@@ -75,7 +92,9 @@ esp_err_t alt_mqtt_start(void)
     cfg.session.last_will.msg = "Offline";
     cfg.session.last_will.qos = 0;
     cfg.session.last_will.retain = 1;
-    cfg.buffer.size = ALT_JSON_MAX + 512;
+    // Must hold the largest single message, which is the retained HA discovery
+    // payload (~7 KB for this definition), not the ATTR payload.
+    cfg.buffer.size = 16384;
 
     if (strlen(alt_settings_mqtt_user()) > 0) {
         cfg.credentials.username = alt_settings_mqtt_user();

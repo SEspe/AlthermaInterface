@@ -5,11 +5,11 @@ idf_component_register(
         "main.c"
         "althermaserial.c"     # <- include/comm.h  (UART, CRC, protocol I/S)
         "converters.cpp"       # <- include/converters.h + include/def/*.h
+        "homeassistant.cpp"    # <- src/homeassistant.cpp (HA discovery)
         "wifi.c"               # <- src/main.cpp    (setup_wifi/checkWifi)
         "mqtt.c"               # <- include/mqtt.h + mqttserial.h (-> esp-mqtt)
         "settings.c"           # <- src/setup.h     (compile-time -> NVS)
         "web_server.c"         # new: config UI, WiFi diag, values, OTA upload
-        # "homeassistant.cpp"  # <- src/homeassistant.cpp (near-verbatim)
         # "control.c"          # <- thermostat / smart grid / safety relay
     INCLUDE_DIRS "."
     REQUIRES

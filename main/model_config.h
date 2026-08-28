@@ -34,7 +34,12 @@
 // ROTEX mapping yields inlet/outlet water 0.56 K apart and a 37 C tank. It also
 // matches the hardware: this unit has the 8-pin ROTEX-style X10A, and it answers
 // 0x50 with 0x15 0xEA ("not understood"), exactly as this file's header notes.
-#include "def/PROTOCOL_S_ROTEX.h"
+// def/EKHBH008BA.h is our own file, derived from PROTOCOL_S_ROTEX.h with the
+// same 0x53/0x54/0x55/0x56 mapping, plus probes on 0x5A - a registry this unit
+// answers that upstream does not document. It also renames the "????" label,
+// which would otherwise produce an empty Home Assistant entity key.
+// def/PROTOCOL_S_ROTEX.h and def/PROTOCOL_S.h are kept unmodified for reference.
+#include "def/EKHBH008BA.h"
 
 #ifndef PROTOCOL
 #define PROTOCOL 'I'

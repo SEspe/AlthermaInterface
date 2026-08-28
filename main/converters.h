@@ -39,6 +39,13 @@ size_t converter_label_count(void);
 // label's registry. Returns false if i is out of range.
 bool converter_label_at(size_t i, uint8_t *reg_id, const char **label, const char **value);
 
+// Static metadata for label i: its name, conversion id and dataType hint.
+// Home Assistant discovery needs these to pick a device class, and routing it
+// through here keeps labelDefs[] defined in exactly one translation unit - the
+// definition headers declare the array, so including one from two .cpp files
+// is a duplicate-symbol link error.
+bool converter_label_meta(size_t i, const char **label, int *convid, int *data_type);
+
 #ifdef __cplusplus
 }
 #endif
