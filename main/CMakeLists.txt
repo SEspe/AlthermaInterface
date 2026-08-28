@@ -3,8 +3,8 @@
 idf_component_register(
     SRCS
         "main.c"
-        # "althermaserial.c"   # <- include/comm.h  (UART, CRC, protocol I/S)
-        # "converters.cpp"     # <- include/converters.h + include/def/*.h
+        "althermaserial.c"     # <- include/comm.h  (UART, CRC, protocol I/S)
+        "converters.cpp"       # <- include/converters.h + include/def/*.h
         # "wifi.c"             # <- src/main.cpp    (setup_wifi/checkWifi/roaming)
         # "mqtt.c"             # <- include/mqtt.h  (PubSubClient -> esp-mqtt)
         # "homeassistant.cpp"  # <- src/homeassistant.cpp (near-verbatim)

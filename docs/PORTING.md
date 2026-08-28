@@ -48,7 +48,8 @@ MQTT, EEPROM, OTA and `Serial`.
 2. **X10A read path** — `althermaserial` + `converters` + `labeldef` + `def/`;
    prove it by logging decoded values over USB serial with no WiFi involved.
    This is the highest-risk, highest-value step: verify against the real heat
-   pump before anything else is built on top.
+   pump before anything else is built on top. *(code written, awaiting
+   verification on the heat pump)*
 3. **WiFi + MQTT publish** — `wifi.c`, `mqtt.c`, `log_mqtt.c`; JSON ATTR payload
    byte-compatible with upstream so existing HA dashboards keep working.
 4. **HA discovery** — port `homeassistant.cpp`, verify entity IDs match
@@ -66,6 +67,28 @@ MQTT, EEPROM, OTA and `Serial`.
   replaced by tasks; nothing needs pumping in IDF.
 - **MQTT TLS verifies the broker** instead of `setInsecure()`.
 - **Configuration is runtime, not compile-time.**
+
+## Deviations taken while porting (phase 2)
+
+Three places where the ported code does not read like upstream. All are marked
+`DEVIATION` in `main/converters.cpp`.
+
+1. **conv 211** — upstream writes `if (data == 0)`, comparing the *pointer* to
+   null, so the `OFF` branch is unreachable and every value takes the numeric
+   path. Intent was clearly `data[0] == 0`. Behaviour is kept identical
+   (`data == NULL`) so readings still match upstream byte for byte; not reached
+   by protocol S. **Not fixed** — that is a change to what the firmware reports,
+   and it belongs in its own commit with a unit to verify against.
+2. **`if (dblData != NAN)`** — always true, since NaN compares unequal to
+   everything including itself. So upstream always formats the value and prints
+   `nan` when a conversion produced one. Kept, comment added.
+3. **`convertTable217` (conv 201/217)** — **fixed, deliberately.** Upstream
+   indexes a 19-entry table with an unchecked byte and prints it through a
+   non-literal format string; any value above 18 reads off the end of the array.
+   This is directly in this unit's path (`PROTOCOL_S.h` maps `0x55` offset 0
+   "Operation Mode" to convid 201), so the index is bounded and out-of-range
+   states print as `State <n>`. An out-of-bounds read on the one register that
+   reports faults was not worth preserving for fidelity.
 
 ## Target unit — what it changes
 

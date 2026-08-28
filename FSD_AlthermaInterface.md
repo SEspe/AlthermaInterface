@@ -1,7 +1,7 @@
 # FSD — AlthermaInterface
 
-**Version:** 0.3
-**Firmware:** 0.1.0
+**Version:** 0.4
+**Firmware:** 0.2.0
 **Target:** ESP32 (ESP32-WROOM devkit, 4 MB flash), ESP-IDF v6.0.1
 **Heat pump:** Daikin Altherma LT split hydrobox **EKHBH / EKHBX 008BA** —
 **protocol S**
@@ -11,6 +11,25 @@ is authoritative for *what the firmware must do*; `docs/PORTING.md` covers *how
 the upstream code maps onto it*, and `CLAUDE.md` covers build/verify workflow.
 
 ## Changelog
+
+- v0.4 — **X10A read path (firmware 0.2.0), §4, §5, §6.** Phase 2 of the port.
+  `main/althermaserial.c` (UART1 9600 8E1, protocol I/S framing, CRC, timeout
+  and retry) and `main/converters.cpp` (the full upstream conversion table
+  behind a C facade) replace the skeleton loop; `main.c` now polls every
+  registry named by the definition file and logs each decoded value over USB
+  serial. No WiFi, no MQTT yet — deliberately, so a bad reading can only be the
+  wiring, the protocol or the definition.
+  Refrigerant is pinned to R410A (801) in `main.c`: the converter defaults to
+  R32 and no protocol-S definition carries a convid 800-803 entry to correct it.
+  Three upstream quirks are documented in `docs/PORTING.md`; one — an
+  out-of-bounds table read on `0x55` "Operation Mode" — is fixed rather than
+  preserved.
+  Also fixes `CONFIG_MQTT_BUFFER_SIZE`, which was being silently discarded
+  because it depends on `CONFIG_MQTT_USE_CUSTOM_CONFIG`; takes effect when
+  `sdkconfig` is next regenerated, before phase 3 needs it.
+  Verified: builds clean, boots, opens UART1 on GPIO16/15, enumerates 25 labels
+  over registries 0x50/0x53/0x54/0x55, and times out cleanly with no heat pump
+  attached. **Not yet verified against the heat pump.**
 
 - v0.3 — **X10A TX moved to GPIO15 (firmware 0.1.0), §3.1.** As-wired pin map
   is RX = GPIO16, **TX = GPIO15**, not upstream's 16/17. GPIO15 is a strapping

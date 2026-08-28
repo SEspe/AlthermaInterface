@@ -19,6 +19,11 @@ CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=32
 
 # MQTT (esp-mqtt) replaces PubSubClient. The ATTR payload is one large JSON
 # object (upstream MAX_MSG_SIZE 7120), so the outbox buffer must clear it.
+# MQTT_BUFFER_SIZE depends on MQTT_USE_CUSTOM_CONFIG; without the enable below
+# the size line is silently dropped and the buffer stays at the 1024 default -
+# which the ATTR payload would not fit. idf.py reports this as "Disabled
+# Symbols/Choices With User-Set Value", easy to scroll past.
+CONFIG_MQTT_USE_CUSTOM_CONFIG=y
 CONFIG_MQTT_BUFFER_SIZE=8192
 
 # httpd tuning for the on-device config UI (replaces compile-time setup.h).
