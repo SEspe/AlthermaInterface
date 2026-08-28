@@ -358,7 +358,11 @@ void alt_scan_start(char protocol)
         return;
     }
     s_scan_running = true;
-    xTaskCreate(&scan_task, "x10a_scan", 4096, (void *)(intptr_t)protocol, 4, NULL);
+    // 8 KB, not 4: query_registry_locked puts a 321-byte hex buffer and a
+    // 64-byte status string on the stack, and every ESP_LOGx passes through the
+    // MQTT log hook, which adds a 256-byte line buffer plus vsnprintf internals
+    // on the CALLING task stack. 4 KB panicked partway through the scan.
+    xTaskCreate(&scan_task, "x10a_scan", 8192, (void *)(intptr_t)protocol, 4, NULL);
 }
 
 uint8_t alt_crc(const uint8_t *src, size_t len)

@@ -136,7 +136,7 @@ static const char PAGE[] =
 "row('Channel',s.channel)+row('BSSID',s.bssid)+row('WiFi',s.wifi?'connected':'down')+"
 "row('MQTT',s.mqtt?'connected':'down')+row('Broker',s.broker)+"
 "row('Protocol',s.protocol)+row('Refrigerant',s.refrigerant)+"
-"row('OTA slot',s.partition)+row('Free heap',s.heap+' bytes')+row('Uptime',s.uptime+' s')+row('Firmware',s.version);"
+"row('OTA slot',s.partition)+row('Reset reason',s.resetReason)+row('Free heap',s.heap+' bytes')+row('Uptime',s.uptime+' s')+row('Firmware',s.version);"
 "var v=await (await fetch('/api/values')).json();"
 "document.getElementById('vals').innerHTML=v.values.length?v.values.map(x=>"
 "'<tr><td class=\"r\">'+esc(x.reg)+'</td><td>'+esc(x.label)+'</td><td class=\"v\">'+esc(x.value)+'</td></tr>'"
@@ -221,13 +221,14 @@ static esp_err_t status_get(httpd_req_t *req)
              "{\"version\":\"%s\",\"ssid\":\"%s\",\"ip\":\"%s\",\"rssi\":%d,"
              "\"channel\":%d,\"bssid\":\"%s\",\"wifi\":%s,\"mqtt\":%s,"
              "\"broker\":\"%s\",\"protocol\":\"%c\",\"refrigerant\":%d,"
-             "\"partition\":\"%s\",\"heap\":%u,\"uptime\":%lld}",
+             "\"partition\":\"%s\",\"resetReason\":%d,\"heap\":%u,\"uptime\":%lld}",
              FIRMWARE_VERSION, alt_wifi_ssid(), ip, alt_wifi_rssi(),
              alt_wifi_channel(), bssid,
              alt_wifi_is_connected() ? "true" : "false",
              alt_mqtt_is_connected() ? "true" : "false",
              alt_settings_mqtt_uri(), converter_protocol(), converter_refrigerant(),
              run ? run->label : "?",
+             (int)esp_reset_reason(),
              (unsigned)esp_get_free_heap_size(),
              esp_timer_get_time() / 1000000);
 
