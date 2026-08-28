@@ -1,0 +1,27 @@
+# Common defaults for all targets. Target-specific values live in
+# sdkconfig.defaults.esp32 (applied automatically by idf.py after this file).
+CONFIG_PARTITION_TABLE_CUSTOM=y
+
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+CONFIG_ESP_SYSTEM_EVENT_TASK_STACK_SIZE=4096
+
+CONFIG_BOOTLOADER_LOG_LEVEL_WARN=y
+
+# OTA rollback: an image that never confirms itself valid via
+# esp_ota_mark_app_valid_cancel_rollback() gets rolled back to the previous
+# slot on the next boot, so a bad OTA upload can't brick a unit that lives
+# inside a heat pump enclosure.
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
+# The HP query loop must not be starved by WiFi/MQTT reconnect work.
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=10
+CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=32
+
+# MQTT (esp-mqtt) replaces PubSubClient. The ATTR payload is one large JSON
+# object (upstream MAX_MSG_SIZE 7120), so the outbox buffer must clear it.
+CONFIG_MQTT_BUFFER_SIZE=8192
+
+# httpd tuning for the on-device config UI (replaces compile-time setup.h).
+CONFIG_HTTPD_MAX_REQ_HDR_LEN=4096
+CONFIG_HTTPD_MAX_URI_LEN=512
+CONFIG_LWIP_MAX_SOCKETS=16

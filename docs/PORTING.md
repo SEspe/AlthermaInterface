@@ -1,0 +1,77 @@
+# Porting ESPAltherma (Arduino/PlatformIO) to AlthermaInterface (ESP-IDF)
+
+Upstream: `raomin/ESPAltherma` @ `4e518ec` (2026-07-24), MIT. Reference clone
+lives at `upstream-ESPAltherma/` and is git-ignored — it is **input**, not a
+subtree of this repo.
+
+Upstream is small: ~2 100 lines across 10 files, plus ~40 generated definition
+headers. Almost all of the value is in the protocol + conversion tables, which
+are framework-independent; the framework coupling is concentrated in WiFi,
+MQTT, EEPROM, OTA and `Serial`.
+
+## File-by-file map
+
+| Upstream | New home | Effort | Notes |
+|---|---|---|---|
+| `include/comm.h` (135) | `main/althermaserial.c/.h` | medium | `HardwareSerial` → `driver/uart.h`. CRC and the protocol I/S framing port verbatim. `millis()` deadlines → `esp_timer_get_time()`. Drop the ESP8266 `SoftwareSerial` branch. |
+| `include/converters.h` (610) | `main/converters.cpp/.h` | low | Pure computation over a byte buffer. Keep as C++ (like BirdBox's `classify.cpp`) so the `Converter` class and `labelDefs[]` array need no rewrite. Only `Serial.printf` debug lines change to `ESP_LOGx`. |
+| `include/labeldef.h` | `main/labeldef.h` | trivial | Drop `<pgmspace.h>`; the class itself is plain C++. |
+| `include/def/*.h` (40 files) | `main/def/*.h` | none | Copy as-is. Model selection stays compile-time for now (§ open question below). |
+| `include/mqtt.h` (364) | `main/mqtt.c` + `main/control.c` | **high** | PubSubClient → `esp_mqtt_client`. Callback-driven subscribe handling → `MQTT_EVENT_DATA` in an event handler. `beginPublish/write/endPublish` chunked HA discovery → `esp_mqtt_client_publish` with a pre-sized buffer, or keep chunking via `esp_mqtt_client_enqueue`. Relay/thermostat command handling splits out into `control.c`. |
+| `include/mqttserial.h` (79) | `main/log_mqtt.c` | medium | The `Stream` subclass that mirrors logs to MQTT becomes an `esp_log_set_vprintf()` hook. Keep the "only publish when connected" guard — it prevents a reconnect storm. |
+| `src/main.cpp` (491) | `main/main.c`, `main/wifi.c` | **high** | `setup()`/`loop()` → `app_main()` + a poll task. `WiFi.begin`/`status`/roaming → `esp_wifi` + event group; the strongest-AP roaming logic (`checkWifiRoaming`) maps onto `esp_wifi_scan_start` + `esp_wifi_connect` with an explicit BSSID. `delay()` spin loops → `vTaskDelay`. |
+| `src/setup.h` (137) | `main/settings.c/.h` + `main/board_config.h` | **high** | Pins and feature flags → `board_config.h` (done). Credentials, MQTT host, poll frequency → NVS, editable at runtime; this is the main functional gain over upstream. |
+| `src/homeassistant.cpp` (190) + `include/homeassistant.h` | `main/homeassistant.cpp/.h` | low | Already framework-free (`std::string`, a sink callback). Ports near-verbatim. |
+| `include/restart.h` | — | none | `esp_restart()` directly. |
+| `scripts/`, `contrib/`, `test/` | not ported | — | Off-device Python tooling; run from the upstream clone if needed. |
+| — | `main/web_server.c` | new | Config UI + OTA upload, BirdBox pattern. Not in upstream. |
+
+## API replacement table
+
+| Arduino | ESP-IDF |
+|---|---|
+| `HardwareSerial`, `Serial2.begin(9600, SERIAL_8E1, rx, tx)` | `uart_driver_install` + `uart_param_config` (`UART_PARITY_EVEN`), `uart_read_bytes` with a tick timeout |
+| `millis()` | `esp_timer_get_time() / 1000` (or `xTaskGetTickCount`) |
+| `delay(ms)` | `vTaskDelay(pdMS_TO_TICKS(ms))` |
+| `pinMode` / `digitalWrite` | `gpio_config` / `gpio_set_level` |
+| `EEPROM.read/write/commit` | `nvs_get_u8` / `nvs_set_u8` / `nvs_commit` |
+| `WiFi.begin/status/RSSI/BSSID` | `esp_wifi_*` + `esp_netif`, connection state via an event group |
+| `PubSubClient` | `esp_mqtt_client_*` (`mqtt_client.h`), LWT via `mqtt_cfg.session.last_will` |
+| `WiFiClientSecure.setInsecure()` | `esp_mqtt` `broker.verification.crt_bundle_attach = esp_crt_bundle_attach` (proper verification, not insecure) |
+| `ArduinoOTA` | `esp_https_ota` / `POST /ota/upload` + `esp_ota_*`, rollback enabled |
+| `Serial.printf` | `ESP_LOGI/W/E` |
+| `String` (2 uses) | `char[]` / `std::string` |
+
+## Phases
+
+1. **Scaffold** — IDF project builds and boots. *(done)*
+2. **X10A read path** — `althermaserial` + `converters` + `labeldef` + `def/`;
+   prove it by logging decoded values over USB serial with no WiFi involved.
+   This is the highest-risk, highest-value step: verify against the real heat
+   pump before anything else is built on top.
+3. **WiFi + MQTT publish** — `wifi.c`, `mqtt.c`, `log_mqtt.c`; JSON ATTR payload
+   byte-compatible with upstream so existing HA dashboards keep working.
+4. **HA discovery** — port `homeassistant.cpp`, verify entity IDs match
+   upstream's (`sensor.espaltherma_*`) unless deliberately renamed.
+5. **Control outputs** — thermostat, Smart Grid, safety relay, state restored
+   from NVS on boot.
+6. **Runtime config + web UI + OTA** — retires `setup.h` reflashing.
+
+## Deliberate deviations from upstream
+
+- **No ESP8266, no M5Stack/M5Unified screen support.** ESP32 only; the display
+  and battery-reporting code is dropped rather than ported.
+- **No blocking spin loops.** Upstream's `extraLoop()`/`waitLoop()` pattern
+  (busy-waiting while pumping `client.loop()` and `ArduinoOTA.handle()`) is
+  replaced by tasks; nothing needs pumping in IDF.
+- **MQTT TLS verifies the broker** instead of `setInsecure()`.
+- **Configuration is runtime, not compile-time.**
+
+## Open questions
+
+- **Model definition selection**: keep compile-time `#include "def/<model>.h"`
+  (simple, small binary) or embed several and select in NVS at runtime (needs a
+  redesign of `labelDefs[]` from a static array to a parsed table)? Phase 2
+  assumes compile-time; revisit at phase 6.
+- **Topic compatibility**: keep upstream's `espaltherma/*` topics verbatim (drop-in
+  replacement for an existing HA setup) or namespace them?

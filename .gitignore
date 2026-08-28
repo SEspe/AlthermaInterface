@@ -1,0 +1,33 @@
+# ESP-IDF build artifacts
+build/
+build_*/
+*.bin
+*.elf
+*.map
+*.hex
+
+# ESP-IDF generated files (regenerated from sdkconfig.defaults / idf_component.yml)
+sdkconfig
+sdkconfig.old
+dependencies.lock
+managed_components/
+
+# Upstream ESPAltherma clone — reference input only, not part of this repo.
+# Re-fetch with: git clone https://github.com/raomin/ESPAltherma.git upstream-ESPAltherma
+upstream-ESPAltherma/
+
+# Local credentials / per-machine config (never commit)
+main/secrets.h
+
+# IDE files
+.vscode/
+*.code-workspace
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Python
+__pycache__/
+*.pyc
