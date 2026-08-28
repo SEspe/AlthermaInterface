@@ -47,7 +47,8 @@ Pinned at upstream commit `4e518ec` (2026-07-24) for this port.
 
 Same wiring as upstream — an ESP32 on the heat pump's X10A connector:
 
-- `GPIO16` ← X10A **TX**, `GPIO17` → X10A **RX**, 9600 8E1 (`main/board_config.h`)
+- `GPIO16` ← X10A **TX**, `GPIO15` → X10A **RX**, 9600 8E1 (`main/board_config.h`)
+  — note this differs from upstream's 16/17 default
 - optional dry contacts: thermostat, Smart Grid (SG1/SG2), safety relay
 - **Beware:** X10A supplies 5 V; wiring mistakes can damage the heat pump's PCB.
   Read upstream's README wiring section before connecting anything.

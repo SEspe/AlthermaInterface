@@ -1,6 +1,6 @@
 # FSD — AlthermaInterface
 
-**Version:** 0.2
+**Version:** 0.3
 **Firmware:** 0.1.0
 **Target:** ESP32 (ESP32-WROOM devkit, 4 MB flash), ESP-IDF v6.0.1
 **Heat pump:** Daikin Altherma LT split hydrobox **EKHBH / EKHBX 008BA** —
@@ -11,6 +11,12 @@ is authoritative for *what the firmware must do*; `docs/PORTING.md` covers *how
 the upstream code maps onto it*, and `CLAUDE.md` covers build/verify workflow.
 
 ## Changelog
+
+- v0.3 — **X10A TX moved to GPIO15 (firmware 0.1.0), §3.1.** As-wired pin map
+  is RX = GPIO16, **TX = GPIO15**, not upstream's 16/17. GPIO15 is a strapping
+  pin (MTDO) — safe as a UART TX output, but recorded here because a low on it
+  at reset silences the ROM boot log and that failure looks like a dead board.
+  Firmware version unchanged: nothing in the build opens the UART yet.
 
 - v0.2 — **Target unit fixed: EKHBH/EKHBX 008BA, protocol S (firmware 0.1.0),
   §5, §6.** The unit is a BA-generation Altherma LT hydrobox, which speaks the
@@ -51,9 +57,14 @@ Daikin models outside the upstream definition set.
 ## 3. Hardware interface
 
 ### 3.1 X10A serial link
-9600 baud, 8E1, on UART1 — `RX = GPIO16` (to X10A TX), `TX = GPIO17` (to X10A
-RX). Pin map in `main/board_config.h`. X10A supplies 5 V; the ESP is powered
-from it in the usual installation.
+9600 baud, 8E1, on UART1 — **`RX = GPIO16`** (← X10A TX), **`TX = GPIO15`**
+(→ X10A RX). This is the wiring on the actual board and differs from upstream's
+16/17 default. Pin map in `main/board_config.h`. X10A supplies 5 V; the ESP is
+powered from it in the usual installation.
+
+GPIO15 is a strapping pin (MTDO): held low at reset it silences the ROM boot
+log on U0TXD. Idle UART TX is high and the pin has an internal pull-up, so this
+is safe — but a missing boot log points here.
 
 ### 3.2 Dry-contact outputs
 - **Thermostat** (`PIN_THERM`, default GPIO0, active HIGH) — normally-open
