@@ -36,3 +36,9 @@ __pycache__/
 # a half-written file cannot be swept into a commit by "git add -A"; a finished
 # capture that is worth keeping as evidence goes in with "git add -f".
 captures/
+
+# Local-only working documents: never pushed. CLAUDE.md is the agent/build
+# working reference and SESSION_NOTES.md is the session log; both stay on this
+# machine.
+CLAUDE.md
+SESSION_NOTES.md
