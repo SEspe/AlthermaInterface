@@ -78,8 +78,12 @@ static const char PAGE[] =
 "<p class='hint' id='rxl'></p>"
 "<table><thead><tr><th>Reg</th><th>Proto</th><th>Last result</th><th>OK/fail</th><th>Raw bytes</th></tr>"
 "</thead><tbody id='diag'><tr><td colspan='5'>no queries yet</td></tr></tbody></table>"
+"<button class='go' onclick='rxcheck()'>Re-check RX line</button> "
 "<button class='go' onclick='probe()'>Probe both protocols</button>"
 "<p class='msg' id='pmsg'></p>"
+"<p class='hint'>Re-check RX reads the level on GPIO16 right now, so a wire can "
+"be moved and re-tested without power-cycling the pump. An idle transmitter "
+"holds its line high; a low reading means nothing is driving it.</p>"
 "<p class='hint'>Asks protocol I on 0x10/0x20/0x21/0x60/0x61 and protocol S on "
 "0x50/0x53/0x54/0x55/0x56. Whichever dialect the machine speaks will answer. "
 "Takes about 25 s; watch the table above.</p>"
@@ -128,12 +132,17 @@ static const char PAGE[] =
 "document.getElementById('vhint').textContent="
 "v.values.length+' of '+v.total+' labels have been read at least once.';"
 "var d=await (await fetch('/api/x10a')).json();"
-"document.getElementById('rxl').textContent='RX line at boot: '+d.rxIdle;"
+"document.getElementById('rxl').textContent='RX line ('+d.rxWhen+'): '+d.rxIdle;"
 "document.getElementById('diag').innerHTML=d.registries.length?d.registries.map(x=>"
 "'<tr><td class=\"r\">'+esc(x.reg)+'</td><td>'+esc(x.proto)+'</td><td>'+esc(x.status)+"
 "'</td><td>'+x.ok+'/'+x.fail+'</td><td class=\"r\">'+esc(x.raw||'-')+'</td></tr>'"
 ").join(''):'<tr><td colspan=\"5\">no queries yet</td></tr>';"
 "}catch(e){}}"
+"async function rxcheck(){var m=document.getElementById('pmsg');m.className='msg';"
+"m.textContent='sampling RX...';"
+"try{var r=await (await fetch('/api/rxcheck',{method:'POST'})).json();"
+"m.textContent='RX line now: '+r.rxIdle;load();}"
+"catch(e){m.className='msg err';m.textContent='Failed: '+e;}}"
 "async function probe(){var m=document.getElementById('pmsg');m.className='msg';"
 "m.textContent='probing both protocols, ~25 s...';"
 "try{await fetch('/api/probe',{method:'POST'});setTimeout(load,26000);}"
@@ -238,8 +247,8 @@ static esp_err_t x10a_get(httpd_req_t *req)
     httpd_resp_set_type(req, "application/json");
 
     char head[128];
-    snprintf(head, sizeof(head), "{\"rxIdle\":\"%s\",\"probing\":%s,\"registries\":[",
-             alt_rx_idle_state(), alt_probe_running() ? "true" : "false");
+    snprintf(head, sizeof(head), "{\"rxIdle\":\"%s\",\"rxWhen\":\"%s\",\"probing\":%s,\"registries\":[",
+             alt_rx_idle_state(), alt_rx_idle_when(), alt_probe_running() ? "true" : "false");
     httpd_resp_sendstr_chunk(req, head);
 
     char chunk[420];
@@ -273,6 +282,18 @@ static esp_err_t probe_post(httpd_req_t *req)
     alt_probe_start();
     httpd_resp_sendstr(req, "started");
     return ESP_OK;
+}
+
+// Re-reads the RX pin level now, so a wire can be moved and re-checked without
+// power-cycling the heat pump to get a fresh boot-time sample.
+static esp_err_t rxcheck_post(httpd_req_t *req)
+{
+    alt_resample_rx();
+    httpd_resp_set_type(req, "application/json");
+    char body[128];
+    snprintf(body, sizeof(body), "{\"rxIdle\":\"%s\",\"rxWhen\":\"%s\"}",
+             alt_rx_idle_state(), alt_rx_idle_when());
+    return httpd_resp_send(req, body, HTTPD_RESP_USE_STRLEN);
 }
 
 static esp_err_t config_get(httpd_req_t *req)
@@ -434,6 +455,7 @@ esp_err_t alt_web_start(void)
         {.uri = "/api/values",  .method = HTTP_GET,  .handler = values_get},
         {.uri = "/api/x10a",    .method = HTTP_GET,  .handler = x10a_get},
         {.uri = "/api/probe",   .method = HTTP_POST, .handler = probe_post},
+        {.uri = "/api/rxcheck", .method = HTTP_POST, .handler = rxcheck_post},
         {.uri = "/api/config",  .method = HTTP_GET,  .handler = config_get},
         {.uri = "/api/config",  .method = HTTP_POST, .handler = config_post},
         {.uri = "/ota/upload",  .method = HTTP_POST, .handler = ota_post},

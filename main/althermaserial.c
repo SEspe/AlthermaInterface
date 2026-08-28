@@ -108,10 +108,37 @@ bool alt_diag_at(size_t i, uint8_t *reg_id, char *protocol, const char **status,
 // ---- RX line check ------------------------------------------------------
 
 static char s_rx_idle[48] = "not sampled";
+static char s_rx_when[16] = "never";
 
 const char *alt_rx_idle_state(void)
 {
     return s_rx_idle;
+}
+
+const char *alt_rx_idle_when(void)
+{
+    return s_rx_when;
+}
+
+// Counts high samples over ~50 ms - several character times at 9600 baud, so
+// real traffic shows up as toggling rather than a clean level.
+static void classify_rx(void)
+{
+    int highs = 0;
+    const int samples = 200;
+    for (int i = 0; i < samples; i++) {
+        highs += gpio_get_level(ALT_UART_RX_PIN);
+        esp_rom_delay_us(250);
+    }
+
+    if (highs == samples) {
+        strlcpy(s_rx_idle, "idle high (line driven)", sizeof(s_rx_idle));
+    } else if (highs == 0) {
+        strlcpy(s_rx_idle, "idle LOW (not driven?)", sizeof(s_rx_idle));
+    } else {
+        snprintf(s_rx_idle, sizeof(s_rx_idle), "toggling (%d%% high, traffic?)",
+                 highs * 100 / samples);
+    }
 }
 
 void alt_probe_rx_idle(void)
@@ -132,22 +159,30 @@ void alt_probe_rx_idle(void)
         return;
     }
 
-    int highs = 0;
-    const int samples = 200;
-    for (int i = 0; i < samples; i++) {
-        highs += gpio_get_level(ALT_UART_RX_PIN);
-        esp_rom_delay_us(250);   // ~50 ms total, several character times at 9600
-    }
-
-    if (highs == samples) {
-        strlcpy(s_rx_idle, "idle high (line driven)", sizeof(s_rx_idle));
-    } else if (highs == 0) {
-        strlcpy(s_rx_idle, "idle LOW (not driven?)", sizeof(s_rx_idle));
-    } else {
-        snprintf(s_rx_idle, sizeof(s_rx_idle), "toggling (%d%% high, traffic?)",
-                 highs * 100 / samples);
-    }
+    classify_rx();
+    strlcpy(s_rx_when, "boot", sizeof(s_rx_when));
     ESP_LOGI(TAG, "RX GPIO%d before UART init: %s", ALT_UART_RX_PIN, s_rx_idle);
+}
+
+void alt_resample_rx(void)
+{
+    // No gpio_config here: uart_set_pin() already enabled the pad input, and
+    // gpio_get_level() reads the pad regardless of the GPIO-matrix routing. So
+    // the level can be re-read without disturbing the UART - which means a wire
+    // can be moved and re-checked without power-cycling the heat pump.
+    //
+    // The mutex keeps this out of the middle of a query: our own TX does not
+    // affect RX, but a sample taken while the pump is mid-reply would report
+    // "toggling" and confuse rather than inform.
+    if (s_uart_lock) {
+        xSemaphoreTake(s_uart_lock, portMAX_DELAY);
+    }
+    classify_rx();
+    strlcpy(s_rx_when, "on demand", sizeof(s_rx_when));
+    if (s_uart_lock) {
+        xSemaphoreGive(s_uart_lock);
+    }
+    ESP_LOGI(TAG, "RX GPIO%d re-sampled: %s", ALT_UART_RX_PIN, s_rx_idle);
 }
 
 // ---- protocol sweep -----------------------------------------------------

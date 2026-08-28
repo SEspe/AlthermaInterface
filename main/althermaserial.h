@@ -57,6 +57,14 @@ void alt_probe_rx_idle(void);
 // Human-readable result of the above ("idle high (line driven)", ...).
 const char *alt_rx_idle_state(void);
 
+// When the reading above was taken: "boot" or "on demand".
+const char *alt_rx_idle_when(void);
+
+// Re-samples the RX pin while the UART driver still owns it, so a wire can be
+// moved and re-checked without power-cycling the heat pump. Reads the pad level
+// directly; the UART routing is left untouched.
+void alt_resample_rx(void);
+
 // Sweeps both protocols across their common registries and records every
 // outcome in the diagnostics table, so "is this machine protocol I or S" can be
 // answered from the web UI without a cable. Runs in its own task; returns
