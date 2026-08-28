@@ -56,7 +56,61 @@ Ten samples, 45 s apart, heat pump idle in Heating with water at ~30 °C:
 Six channels drift continuously, so this is live data rather than configuration
 or field settings.
 
-## Hypothesis: raw ADC channels
+## CONFIRMED: raw sensor channels behind 0x54
+
+Tested against a real heating cycle on 2026-08-28, 15 samples one minute apart,
+circulation pump running, with the compressor cutting in and out so outlet water
+swung about 5 K while inlet barely moved.
+
+Correlation of each probe against the `0x54` temperatures:
+
+| probe | inlet | outlet | DHW | refrigerant |
+|---|---|---|---|---|
+| `5A@2` | 0.255 | 0.380 | −0.057 | 0.225 |
+| **`5A@4`** | **−0.928** | −0.277 | −0.084 | −0.009 |
+| **`5A@6`** | 0.135 | −0.790 | −0.339 | **−0.992** |
+| **`5A@8`** | −0.126 | **−0.958** | −0.256 | −0.835 |
+| **`5A@10`** | −0.206 | **−0.994** | −0.244 | −0.764 |
+| `5A@12` | 0.156 | 0.120 | 0.212 | 0.275 |
+
+Four channels lock onto **one specific** temperature each, all with **negative**
+correlation near −1:
+
+- `5A@4` → inlet water
+- `5A@6` → refrigerant liquid side
+- `5A@8`, `5A@10` → outlet water
+
+The specificity is what makes this conclusive rather than coincidental. Outlet
+and refrigerant are themselves correlated (r = 0.715), so a channel that merely
+responded to "the machine got warm" would show up against both. Instead `5A@4`
+follows inlet at −0.93 while showing nothing against refrigerant (−0.009), and
+`5A@6` follows refrigerant at −0.99 while only weakly following outlet.
+
+Negative correlation is the NTC thermistor signature: resistance falls as
+temperature rises, so the ADC count drops. Combined with the 0 and 1020 (10-bit
+full scale) bracketing channels, `0x5A` is an **ADC readout of the same sensors
+`0x54` reports after conversion**.
+
+So it is a real find, but **not new physical quantities** — it is the
+unconverted form of temperatures already available. Its value is diagnostic: a
+sensor drifting toward the rails, or an open circuit pinned at full scale, shows
+here before conversion hides it.
+
+Still unexplained: `5A@2` (~86.3, very steady) and `5A@12` (~0.9) correlate with
+nothing measured. `5A@8` and `5A@10` both track outlet, so one is likely a
+different sensor that happens to move with it — a heat exchanger probe, perhaps.
+Fifteen samples across one short cycle cannot separate them; a DHW cycle, which
+moves the tank temperature independently of the space-heating loop, probably
+would.
+
+**Method note:** the first pass at this analysis read the sample columns with an
+off-by-one index (the `|` separator is its own field), which attributed each
+correlation to the wrong probe and produced a confident but wrong reading of
+which channels moved. The table above is from corrected indices. Worth
+remembering that eyeballing a wide table is exactly how that error survived
+until the numbers were computed.
+
+## Original hypothesis (now confirmed)
 
 Not established — recorded so it can be tested or discarded.
 
@@ -79,9 +133,9 @@ The alternative reading, unsigned/10, gives 0, 86.2, 51.9, 57.9, 51.2, 51.3,
 anything else this machine reports, and 102.0 never moving argues against it
 being a temperature.
 
-## How to settle it
+## How it was settled
 
-Correlate against a real heating cycle. `main/def/EKHBH008BA.h` already polls
+Correlated against a real heating cycle - see the confirmed section above. `main/def/EKHBH008BA.h` already polls
 `0x5A` every cycle as eight `Probe 5A at N` labels, so both `0x54` temperatures
 and `0x5A` channels are in every MQTT payload and in Home Assistant history.
 
