@@ -72,7 +72,7 @@ Pinned at upstream commit `4e518ec` (2026-07-24) for this port.
 | | upstream ESPAltherma | AlthermaInterface |
 |---|---|---|
 | Framework | Arduino + PlatformIO | ESP-IDF v6.0.1, CMake |
-| Config | compile-time `src/setup.h`, reflash to change | NVS + web UI (planned) |
+| Config | compile-time `src/setup.h`, reflash to change | NVS + web UI, no reflash |
 | MQTT | PubSubClient | esp-mqtt (native, TLS via cert bundle) |
 | OTA | ArduinoOTA | HTTPS/web OTA, dual slots + auto rollback |
 | Loop | single `loop()`, `delay()` everywhere | FreeRTOS tasks, no blocking spin |
@@ -111,16 +111,25 @@ Some heat pumps (ROTEX) have an X10A port that connects differently:
 
 *Photo from [raomin/ESPAltherma](https://github.com/raomin/ESPAltherma), annotated.*
 
-Pin 1 (on the left in the picture) is **+5 V** and pin 8 on the right is **GND**.
+Counting from the left in the picture:
+
+| X10A | ESP32 |
+|---|---|
+| 1-5V | `5V` / `VIN` — can power the ESP |
+| 3-RX | **TX pin** — default `GPIO15` |
+| 4-TX | **RX pin** — default `GPIO16` |
+| 8-GND | `GND` |
+
+Pins 2, 5, 6 and 7 are not used. Note the order: **RX comes before TX** here,
+the reverse of the 5-pin connector above, so the two data wires land on
+different pins than you might expect. Go by the printed labels, not by position.
+
 Some users report the 5 V from a ROTEX is not strong enough to run an
 ESP32/ESP8266 — in that case power the board from a USB charger and leave the
 X10A 5 V unconnected.
 
 **Whatever you do, keep a wire from the ESP's GND to the X10A GND pin — even
 when powering the board from a USB charger.**
-
-Note this variant orders the labels **RX then TX**, the reverse of the 5-pin
-connector above. Go by the printed labels, not by position.
 
 ### When it does not work
 
