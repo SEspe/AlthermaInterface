@@ -110,9 +110,10 @@ which channels moved. The table above is from corrected indices. Worth
 remembering that eyeballing a wide table is exactly how that error survived
 until the numbers were computed.
 
-## Original hypothesis (now confirmed)
+## The original hypothesis, kept for the reasoning
 
-Not established — recorded so it can be tested or discarded.
+This was written before the heating cycle, from a single idle sample, and the
+prediction it made is what the correlation above went on to confirm.
 
 1. **1020 is essentially 10-bit full scale** (1023).
 2. **Offset 0 is pinned at exactly 0.**
@@ -133,20 +134,19 @@ The alternative reading, unsigned/10, gives 0, 86.2, 51.9, 57.9, 51.2, 51.3,
 anything else this machine reports, and 102.0 never moving argues against it
 being a temperature.
 
-## How it was settled
+## What is still open
 
-Correlated against a real heating cycle - see the confirmed section above. `main/def/EKHBH008BA.h` already polls
-`0x5A` every cycle as eight `Probe 5A at N` labels, so both `0x54` temperatures
-and `0x5A` channels are in every MQTT payload and in Home Assistant history.
+- **`5A@2`** (~86.3) and **`5A@12`** (~0.9): correlate with nothing measured.
+- **`5A@8` vs `5A@10`**: both track outlet water, so one is probably a different
+  sensor that merely moves with it. A **DHW cycle** should separate them, since
+  it drives the tank temperature independently of the space-heating loop — and
+  note no probe tracked DHW tank temperature during this run, which was pure
+  space heating.
 
-- If offsets 4/6/8/10 move **inversely** to the `0x54` temperatures, they are NTC
-  thermistor readings and the ADC hypothesis holds.
-- If they track a temperature **proportionally** with a consistent scale factor,
-  they are scaled values and the divisor can be derived from the ratio.
-- If they do not correlate with anything, they belong to some other subsystem.
-
-A day of history with the compressor actually running should be decisive. At
-~30 °C and idle there is nothing to correlate against.
+`main/def/EKHBH008BA.h` polls `0x5A` every cycle as eight `Probe 5A at N`
+labels, so both `0x54` temperatures and `0x5A` channels are already in every
+MQTT payload and in Home Assistant history. Answering the above needs no
+firmware change, only a DHW cycle in the recorded history.
 
 ## Reproducing
 
