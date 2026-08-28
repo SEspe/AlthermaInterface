@@ -97,4 +97,4 @@ A day of history with the compressor actually running should be decisive. At
 ## Reproducing
 
 `POST /api/scan` on the device (`GET /api/scan` for progress and results), or
-query it directly: protocol S, `0x02 0x5A 0xA4`.
+query it directly: protocol S, `0x02 0x5A 0xA3`.
