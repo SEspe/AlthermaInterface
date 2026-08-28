@@ -31,3 +31,8 @@ desktop.ini
 # Python
 __pycache__/
 *.pyc
+
+# Live captures from the reference unit. Ignored while a run is in progress so
+# a half-written file cannot be swept into a commit by "git add -A"; a finished
+# capture that is worth keeping as evidence goes in with "git add -f".
+captures/
