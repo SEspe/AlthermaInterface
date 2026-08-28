@@ -31,6 +31,33 @@ bool alt_settings_mqtt_pass_set(void);
 // is what the web UI does when the field is left blank.
 esp_err_t alt_settings_set_mqtt(const char *uri, const char *user, const char *pass);
 
+// ---- WiFi ---------------------------------------------------------------
+// Credentials and IP mode live in NVS. secrets.h only seeds them on a device
+// that has never been configured; with both empty the firmware brings up a
+// SoftAP instead so the network can be chosen from a browser.
+
+#define ALT_AP_SSID "AlthermaInterface"
+#define ALT_AP_IP   "192.168.4.1"
+
+const char *alt_settings_wifi_ssid(void);
+const char *alt_settings_wifi_pass(void);
+
+// True when a static address is configured; false means DHCP.
+bool alt_settings_ip_static(void);
+const char *alt_settings_ip_addr(void);
+const char *alt_settings_ip_gw(void);
+const char *alt_settings_ip_mask(void);
+const char *alt_settings_ip_dns(void);
+
+// True when no SSID is configured at all - the firmware then starts the
+// provisioning SoftAP rather than trying to associate with nothing.
+bool alt_settings_wifi_unconfigured(void);
+
+// Pass NULL for the password to keep the stored one.
+esp_err_t alt_settings_set_wifi(const char *ssid, const char *pass);
+esp_err_t alt_settings_set_ip(bool use_static, const char *addr, const char *gw,
+                              const char *mask, const char *dns);
+
 // ---- GitHub releases ----------------------------------------------------
 // owner/name of the repository whose releases the device may download and
 // flash. The OTA path is locked to this repo, so the device can only ever

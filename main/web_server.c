@@ -94,6 +94,40 @@ static const char PAGE[] =
 "</section>"
 
 "<section>"
+"<h3 style='font-size:13px;color:#8b93a1;font-weight:500;margin:0 0 8px'>"
+"WIFI NETWORK</h3>"
+"<p class='hint' id='wst'></p>"
+"<button class='go' style='margin-top:4px' onclick='wscan()'>Scan for networks</button>"
+"<p class='hint' id='wsc'></p>"
+"<select id='wlist' size='6' style='width:100%;max-width:380px;padding:6px;"
+"background:#1c1f26;border:1px solid #333a46;border-radius:4px;color:#e6e6e6;"
+"display:none' onchange='wpick()'></select>"
+"<label>SSID</label><input id='wssid' placeholder='pick from the list or type'>"
+"<label>Password</label><input id='wpass' type='password' "
+"autocomplete='new-password' placeholder='leave empty if open or unchanged'>"
+"<p class='hint' id='wph'></p>"
+"<label>IP configuration</label>"
+"<div style='margin:4px 0'>"
+"<label style='display:inline;margin-right:16px'>"
+"<input type='radio' name='ipm' value='dhcp' style='width:auto' onchange='ipm()'> "
+"Automatic (DHCP)</label>"
+"<label style='display:inline'>"
+"<input type='radio' name='ipm' value='static' style='width:auto' onchange='ipm()'> "
+"Static IP</label></div>"
+"<div id='ipf' style='display:none'>"
+"<label>IP address</label><input id='ipa' placeholder='192.168.10.40'>"
+"<label>Gateway</label><input id='ipg' placeholder='192.168.10.1'>"
+"<label>Subnet mask</label><input id='ipm2' placeholder='255.255.255.0'>"
+"<label>DNS</label><input id='ipd' placeholder='192.168.10.1'>"
+"</div>"
+"<p class='hint'>Saving reboots the device. This unit's access point does not "
+"answer DHCP, so a static address is what keeps it reachable &mdash; if you "
+"switch to DHCP and it disappears, reflash over USB to recover.</p>"
+"<button class='go' onclick='wsave()'>Save WiFi and reboot</button>"
+"<p class='msg' id='wmsg'></p>"
+
+"<h3 style='font-size:13px;color:#8b93a1;font-weight:500;margin:26px 0 8px'>"
+"MQTT BROKER</h3>"
 "<label>Broker URI</label><input id='uri' placeholder='mqtt://192.168.1.4:1883'>"
 "<p class='hint'>mqtt:// for plain TCP, mqtts:// for TLS.</p>"
 "<label>Username</label><input id='usr' autocomplete='off'>"
@@ -186,6 +220,43 @@ static const char PAGE[] =
 ").join(''):'<tr><td colspan=\"5\">no queries yet</td></tr>';"
 "}catch(e){}}"
 "var GH='';"
+"function ipm(){var st=document.querySelector('input[name=ipm]:checked');"
+"document.getElementById('ipf').style.display=st&&st.value=='static'?'block':'none';}"
+"async function wcfg(){var c=await (await fetch('/api/wificfg')).json();"
+"document.getElementById('wst').textContent=c.apMode?"
+"'Provisioning access point active - no network configured yet.':"
+"('Configured network: '+(c.ssid||'none'));"
+"document.getElementById('wssid').value=c.ssid||'';"
+"document.getElementById('wph').textContent=c.passSet?"
+"'A password is stored. Leave blank to keep it.':'No password stored.';"
+"document.querySelector('input[name=ipm][value='+(c.static?'static':'dhcp')+']').checked=true;"
+"document.getElementById('ipa').value=c.addr||'';"
+"document.getElementById('ipg').value=c.gw||'';"
+"document.getElementById('ipm2').value=c.mask||'';"
+"document.getElementById('ipd').value=c.dns||'';ipm();}"
+"async function wscan(){var s=document.getElementById('wsc');"
+"var l=document.getElementById('wlist');s.textContent='scanning\\u2026';"
+"try{var a=await (await fetch('/api/wifiscan')).json();"
+"if(!a.length){s.textContent='no networks found';l.style.display='none';return;}"
+"l.innerHTML=a.map(x=>'<option value=\"'+esc(x.ssid)+'\">'+esc(x.ssid)+"
+"'  ('+x.rssi+' dBm, ch'+x.ch+(x.open?', open':'')+')</option>').join('');"
+"l.style.display='block';"
+"s.textContent=a.length+' network'+(a.length!=1?'s':'')+' found - pick one';}"
+"catch(e){s.textContent='scan failed: '+e;}}"
+"function wpick(){document.getElementById('wssid').value="
+"document.getElementById('wlist').value;}"
+"async function wsave(){var m=document.getElementById('wmsg');m.className='msg';"
+"var st=document.querySelector('input[name=ipm]:checked');"
+"var b={ssid:document.getElementById('wssid').value,"
+"pass:document.getElementById('wpass').value,mode:st?st.value:'dhcp',"
+"addr:document.getElementById('ipa').value,gw:document.getElementById('ipg').value,"
+"mask:document.getElementById('ipm2').value,dns:document.getElementById('ipd').value};"
+"if(!b.ssid){m.className='msg err';m.textContent='Enter or pick an SSID.';return;}"
+"m.textContent='saving\\u2026';"
+"try{var r=await fetch('/api/wificfg',{method:'POST',body:JSON.stringify(b)});"
+"m.textContent=r.ok?'Saved. Rebooting - reconnect at the new address.':"
+"'Failed: '+await r.text();if(!r.ok)m.className='msg err';}"
+"catch(e){m.className='msg err';m.textContent='Failed: '+e;}}"
 "async function cfg(){var c=await (await fetch('/api/config')).json();"
 "document.getElementById('uri').value=c.uri;document.getElementById('usr').value=c.user;"
 "document.getElementById('rxp').value=c.rxPin;document.getElementById('txp').value=c.txPin;"
@@ -240,7 +311,7 @@ static const char PAGE[] =
 "else{m.className='msg err';m.textContent='Failed: '+x.responseText;}};"
 "x.onerror=()=>{m.className='msg err';m.textContent='Upload failed.';};"
 "x.setRequestHeader('Content-Type','application/octet-stream');x.send(f);}"
-"load();cfg();setInterval(load,5000);"
+"load();cfg();wcfg();setInterval(load,5000);"
 "</script></body></html>";
 
 static esp_err_t root_get(httpd_req_t *req)
@@ -357,6 +428,87 @@ static esp_err_t x10a_get(httpd_req_t *req)
 
     httpd_resp_sendstr_chunk(req, "]}");
     return httpd_resp_sendstr_chunk(req, NULL);
+}
+
+// Defined further down, next to the other config handlers.
+static bool json_field(const char *body, const char *key, char *out, size_t len);
+static void reboot_task(void *arg);
+
+// Scans for networks so a WiFi can be picked from the Config tab rather than
+// typed blind. Blocks for a few seconds while the radio sweeps.
+static esp_err_t wifiscan_get(httpd_req_t *req)
+{
+    static char body[2048];
+    alt_wifi_scan_json(body, sizeof(body));
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_send(req, body, HTTPD_RESP_USE_STRLEN);
+}
+
+static esp_err_t wificfg_get(httpd_req_t *req)
+{
+    char body[420];
+    // The WiFi password, like the MQTT one, is never sent to the browser.
+    snprintf(body, sizeof(body),
+             "{\"ssid\":\"%s\",\"passSet\":%s,\"apMode\":%s,\"static\":%s,"
+             "\"addr\":\"%s\",\"gw\":\"%s\",\"mask\":\"%s\",\"dns\":\"%s\"}",
+             alt_settings_wifi_ssid(),
+             alt_settings_wifi_pass()[0] ? "true" : "false",
+             alt_wifi_ap_mode() ? "true" : "false",
+             alt_settings_ip_static() ? "true" : "false",
+             alt_settings_ip_addr(), alt_settings_ip_gw(),
+             alt_settings_ip_mask(), alt_settings_ip_dns());
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_send(req, body, HTTPD_RESP_USE_STRLEN);
+}
+
+static esp_err_t wificfg_post(httpd_req_t *req)
+{
+    char body[512];
+    int len = req->content_len < (int)sizeof(body) - 1 ? req->content_len
+                                                       : (int)sizeof(body) - 1;
+    int got = httpd_req_recv(req, body, len);
+    if (got <= 0) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "empty body");
+        return ESP_FAIL;
+    }
+    body[got] = '\0';
+
+    char ssid[ALT_SETTING_MAX] = {0};
+    char pass[ALT_SETTING_MAX] = {0};
+    if (!json_field(body, "ssid", ssid, sizeof(ssid)) || ssid[0] == '\0') {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "ssid required");
+        return ESP_FAIL;
+    }
+    bool has_pass = json_field(body, "pass", pass, sizeof(pass)) && pass[0] != '\0';
+
+    char mode[12] = {0};
+    char addr[20] = {0}, gw[20] = {0}, mask[20] = {0}, dns[20] = {0};
+    json_field(body, "mode", mode, sizeof(mode));
+    bool use_static = strcmp(mode, "static") == 0;
+    json_field(body, "addr", addr, sizeof(addr));
+    json_field(body, "gw",   gw,   sizeof(gw));
+    json_field(body, "mask", mask, sizeof(mask));
+    json_field(body, "dns",  dns,  sizeof(dns));
+
+    if (use_static && addr[0] == '\0') {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
+                            "static mode needs an address");
+        return ESP_FAIL;
+    }
+
+    esp_err_t err = alt_settings_set_ip(use_static, addr, gw, mask, dns);
+    if (err == ESP_OK) {
+        err = alt_settings_set_wifi(ssid, has_pass ? pass : NULL);
+    }
+    if (err != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, esp_err_to_name(err));
+        return ESP_FAIL;
+    }
+
+    httpd_resp_sendstr(req, "OK");
+    ESP_LOGW(TAG, "WiFi reconfigured to \"%s\", rebooting", ssid);
+    xTaskCreate(&reboot_task, "reboot", 2048, NULL, 5, NULL);
+    return ESP_OK;
 }
 
 static esp_err_t config_get(httpd_req_t *req)
@@ -685,6 +837,9 @@ esp_err_t alt_web_start(void)
         {.uri = "/api/status",  .method = HTTP_GET,  .handler = status_get},
         {.uri = "/api/values",  .method = HTTP_GET,  .handler = values_get},
         {.uri = "/api/x10a",    .method = HTTP_GET,  .handler = x10a_get},
+        {.uri = "/api/wifiscan",.method = HTTP_GET,  .handler = wifiscan_get},
+        {.uri = "/api/wificfg", .method = HTTP_GET,  .handler = wificfg_get},
+        {.uri = "/api/wificfg", .method = HTTP_POST, .handler = wificfg_post},
         {.uri = "/api/config",  .method = HTTP_GET,  .handler = config_get},
         {.uri = "/api/config",  .method = HTTP_POST, .handler = config_post},
         {.uri = "/ota/upload",  .method = HTTP_POST, .handler = ota_post},

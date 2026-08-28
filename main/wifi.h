@@ -32,3 +32,13 @@ const char *alt_wifi_ssid(void);
 // Channel and BSSID of the AP we are associated with, for the diagnostics tab.
 int alt_wifi_channel(void);
 void alt_wifi_bssid(char *out, size_t len);
+
+// True when running the provisioning SoftAP instead of joining a network,
+// which happens when no SSID is configured.
+bool alt_wifi_ap_mode(void);
+
+// Scans for networks and writes a JSON array to `out`:
+//   [{"ssid":"...","rssi":-60,"ch":6,"open":false}, ...]
+// sorted strongest first, duplicates removed. Blocks for a few seconds.
+// Returns the number of entries written.
+int alt_wifi_scan_json(char *out, size_t len);

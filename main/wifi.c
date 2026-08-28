@@ -15,6 +15,7 @@
 #include "wifi.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "esp_event.h"
@@ -28,7 +29,7 @@
 #include "freertos/task.h"
 #include "nvs_flash.h"
 
-#include "secrets.h"
+#include "settings.h"
 
 static const char *TAG = "wifi";
 
@@ -52,6 +53,7 @@ static esp_timer_handle_t s_retry_timer;
 // tears down a perfectly good link and restarts the wait - forever.
 static volatile bool s_associated;
 static bool s_dhcp_kicked;
+static bool s_ap_mode;
 
 static int64_t now_ms(void)
 {
@@ -146,7 +148,7 @@ static void on_ip_event(void *arg, esp_event_base_t base, int32_t id, void *data
     s_dhcp_kicked = false;
     xEventGroupSetBits(s_wifi_events, WIFI_CONNECTED_BIT);
     ESP_LOGI(TAG, "connected to \"%s\", IP " IPSTR ", RSSI %d dBm",
-             ALT_WIFI_SSID, IP2STR(&e->ip_info.ip), alt_wifi_rssi());
+             alt_settings_wifi_ssid(), IP2STR(&e->ip_info.ip), alt_wifi_rssi());
 }
 
 esp_err_t alt_wifi_start(void)
@@ -160,31 +162,67 @@ esp_err_t alt_wifi_start(void)
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     esp_netif_t *sta = esp_netif_create_default_wifi_sta();
 
-#ifdef ALT_WIFI_STATIC_IP
-    // Upstream offers the same escape hatch (WIFI_IP / WIFI_GATEWAY /
-    // WIFI_SUBNET in setup.h). Worth having: a router that associates a client
-    // but never answers its DHCP DISCOVER leaves the device unreachable with
-    // nothing wrong on this side.
-    {
+    // No SSID configured: bring up the provisioning SoftAP instead of trying to
+    // associate with nothing. APSTA rather than plain AP, so the Config tab can
+    // still scan for networks while serving the page over the AP.
+    if (alt_settings_wifi_unconfigured()) {
+        s_ap_mode = true;
+        esp_netif_t *ap = esp_netif_create_default_wifi_ap();
+
         esp_netif_ip_info_t ip = {0};
-        ip.ip.addr = esp_ip4addr_aton(ALT_WIFI_STATIC_IP);
-        ip.gw.addr = esp_ip4addr_aton(ALT_WIFI_GATEWAY);
-        ip.netmask.addr = esp_ip4addr_aton(ALT_WIFI_NETMASK);
+        ip.ip.addr      = esp_ip4addr_aton(ALT_AP_IP);
+        ip.gw.addr      = esp_ip4addr_aton(ALT_AP_IP);
+        ip.netmask.addr = esp_ip4addr_aton("255.255.255.0");
+        esp_netif_dhcps_stop(ap);
+        esp_netif_set_ip_info(ap, &ip);
+        esp_netif_dhcps_start(ap);
+
+        wifi_init_config_t init = WIFI_INIT_CONFIG_DEFAULT();
+        ESP_ERROR_CHECK(esp_wifi_init(&init));
+        ESP_ERROR_CHECK(esp_event_handler_instance_register(
+            WIFI_EVENT, ESP_EVENT_ANY_ID, &on_wifi_event, NULL, NULL));
+
+        wifi_config_t apcfg = {0};
+        strlcpy((char *)apcfg.ap.ssid, ALT_AP_SSID, sizeof(apcfg.ap.ssid));
+        apcfg.ap.ssid_len = strlen(ALT_AP_SSID);
+        apcfg.ap.channel = 1;
+        apcfg.ap.max_connection = 4;
+        // Open on purpose: this exists so someone with no credentials can get
+        // in and supply them. It is only up until a network is configured.
+        apcfg.ap.authmode = WIFI_AUTH_OPEN;
+
+        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
+        ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &apcfg));
+        ESP_ERROR_CHECK(esp_wifi_start());
+
+        ESP_LOGW(TAG, "no WiFi configured - provisioning AP \"%s\" at %s",
+                 ALT_AP_SSID, ALT_AP_IP);
+        return ESP_OK;
+    }
+
+    if (alt_settings_ip_static()) {
+        // Worth having: a router that associates a client but never answers its
+        // DHCP DISCOVER leaves the device unreachable with nothing wrong on
+        // this side - which is exactly what this unit's AP does.
+        esp_netif_ip_info_t ip = {0};
+        ip.ip.addr      = esp_ip4addr_aton(alt_settings_ip_addr());
+        ip.gw.addr      = esp_ip4addr_aton(alt_settings_ip_gw());
+        ip.netmask.addr = esp_ip4addr_aton(alt_settings_ip_mask());
 
         ESP_ERROR_CHECK(esp_netif_dhcpc_stop(sta));
         ESP_ERROR_CHECK(esp_netif_set_ip_info(sta, &ip));
 
-        esp_netif_dns_info_t dns = {0};
-        dns.ip.type = ESP_IPADDR_TYPE_V4;
-        dns.ip.u_addr.ip4.addr = esp_ip4addr_aton(ALT_WIFI_DNS);
-        esp_netif_set_dns_info(sta, ESP_NETIF_DNS_MAIN, &dns);
+        if (alt_settings_ip_dns()[0]) {
+            esp_netif_dns_info_t dns = {0};
+            dns.ip.type = ESP_IPADDR_TYPE_V4;
+            dns.ip.u_addr.ip4.addr = esp_ip4addr_aton(alt_settings_ip_dns());
+            esp_netif_set_dns_info(sta, ESP_NETIF_DNS_MAIN, &dns);
+        }
 
         ESP_LOGI(TAG, "static IP %s, gw %s, mask %s, dns %s",
-                 ALT_WIFI_STATIC_IP, ALT_WIFI_GATEWAY, ALT_WIFI_NETMASK, ALT_WIFI_DNS);
+                 alt_settings_ip_addr(), alt_settings_ip_gw(),
+                 alt_settings_ip_mask(), alt_settings_ip_dns());
     }
-#else
-    (void)sta;
-#endif
 
     wifi_init_config_t init = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&init));
@@ -195,8 +233,8 @@ esp_err_t alt_wifi_start(void)
         IP_EVENT, IP_EVENT_STA_GOT_IP, &on_ip_event, NULL, NULL));
 
     wifi_config_t cfg = {0};
-    strlcpy((char *)cfg.sta.ssid, ALT_WIFI_SSID, sizeof(cfg.sta.ssid));
-    strlcpy((char *)cfg.sta.password, ALT_WIFI_PASSWORD, sizeof(cfg.sta.password));
+    strlcpy((char *)cfg.sta.ssid, alt_settings_wifi_ssid(), sizeof(cfg.sta.ssid));
+    strlcpy((char *)cfg.sta.password, alt_settings_wifi_pass(), sizeof(cfg.sta.password));
     // Upstream sets WIFI_ALL_CHANNEL_SCAN + sort by signal so it associates to
     // the strongest AP of the SSID rather than the first one heard.
     cfg.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
@@ -214,8 +252,62 @@ esp_err_t alt_wifi_start(void)
     ESP_ERROR_CHECK(esp_timer_start_periodic(s_retry_timer,
                                              (uint64_t)WIFI_RETRY_INTERVAL_MS * 1000));
 
-    ESP_LOGI(TAG, "station started, connecting to \"%s\"", ALT_WIFI_SSID);
+    ESP_LOGI(TAG, "station started, connecting to \"%s\"", alt_settings_wifi_ssid());
     return ESP_OK;
+}
+
+bool alt_wifi_ap_mode(void) { return s_ap_mode; }
+
+int alt_wifi_scan_json(char *out, size_t len)
+{
+    wifi_scan_config_t sc = { .show_hidden = false };
+    if (esp_wifi_scan_start(&sc, true) != ESP_OK) {
+        snprintf(out, len, "[]");
+        return 0;
+    }
+
+    uint16_t n = 0;
+    esp_wifi_scan_get_ap_num(&n);
+    if (n > 32) {
+        n = 32;
+    }
+    wifi_ap_record_t *recs = calloc(n ? n : 1, sizeof(wifi_ap_record_t));
+    if (!recs) {
+        snprintf(out, len, "[]");
+        return 0;
+    }
+    esp_wifi_scan_get_ap_records(&n, recs);
+
+    // esp_wifi already returns these strongest-first. Several APs can share one
+    // SSID, so keep only the best of each - the list is for choosing a network,
+    // not an access point.
+    size_t pos = 0;
+    int written = 0;
+    pos += snprintf(out + pos, len - pos, "[");
+    for (uint16_t i = 0; i < n && pos + 96 < len; i++) {
+        const char *ssid = (const char *)recs[i].ssid;
+        if (ssid[0] == '\0') {
+            continue;
+        }
+        bool dup = false;
+        for (uint16_t j = 0; j < i; j++) {
+            if (strcmp(ssid, (const char *)recs[j].ssid) == 0) { dup = true; break; }
+        }
+        if (dup) {
+            continue;
+        }
+        pos += snprintf(out + pos, len - pos,
+                        "%s{\"ssid\":\"%s\",\"rssi\":%d,\"ch\":%d,\"open\":%s}",
+                        written ? "," : "", ssid, recs[i].rssi, recs[i].primary,
+                        recs[i].authmode == WIFI_AUTH_OPEN ? "true" : "false");
+        written++;
+    }
+    snprintf(out + pos, len - pos, "]");
+
+    free(recs);
+    esp_wifi_scan_stop();
+    ESP_LOGI(TAG, "scan found %d networks", written);
+    return written;
 }
 
 bool alt_wifi_is_connected(void)
@@ -264,7 +356,7 @@ void alt_wifi_ip(char *out, size_t len)
 
 const char *alt_wifi_ssid(void)
 {
-    return ALT_WIFI_SSID;
+    return s_ap_mode ? ALT_AP_SSID : alt_settings_wifi_ssid();
 }
 
 int alt_wifi_channel(void)
