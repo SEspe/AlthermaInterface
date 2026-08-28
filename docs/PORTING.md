@@ -57,8 +57,14 @@ MQTT, EEPROM, OTA and `Serial`.
    landed here too, so configuration is already runtime rather than compile-time.
 4. **HA discovery** — port `homeassistant.cpp`, verify entity IDs match
    upstream's (`sensor.espaltherma_*`) unless deliberately renamed.
-5. **Control outputs** — thermostat, Smart Grid, safety relay, state restored
-   from NVS on boot.
+5. **Control outputs** — thermostat, Smart Grid, safety relay. **DROPPED, not
+   deferred.** This heat pump is controlled by an existing xComfort
+   installation, so the thermostat contact is already driven. Wiring a second
+   relay across the same input would put two systems in contention for one
+   contact — a worse outcome than not having the feature. It also means the
+   subscribe side of MQTT is not needed: this firmware is publish-only by
+   design, which removes the entire class of "MQTT command moves a physical
+   relay" failure. Revisit only if xComfort is removed from the loop.
 6. **Runtime config + web UI + OTA** — *mostly landed early, in phase 3.* What
    is left: WiFi credentials and poll frequency into NVS (still `secrets.h` /
    compile-time), and the model-definition selection question below.

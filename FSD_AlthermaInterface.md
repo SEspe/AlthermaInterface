@@ -1,7 +1,7 @@
 # FSD — AlthermaInterface
 
-**Version:** 0.7
-**Firmware:** 0.5.0
+**Version:** 0.10
+**Firmware:** 0.8.0
 **Target:** ESP32 (ESP32-WROOM devkit, 4 MB flash), ESP-IDF v6.0.1
 **Heat pump:** Daikin Altherma LT split hydrobox **EKHBH / EKHBX 008BA** —
 **protocol S**, ROTEX value mapping
@@ -11,6 +11,44 @@ is authoritative for *what the firmware must do*; `docs/PORTING.md` covers *how
 the upstream code maps onto it*, and `CLAUDE.md` covers build/verify workflow.
 
 ## Changelog
+
+- v0.10 — **Control outputs dropped from scope (firmware 0.8.0), §1, §2.**
+  Phase 5 is not deferred, it is cancelled: this machine is controlled by an
+  existing xComfort installation, so its thermostat contact is already driven
+  and a second relay across the same input would put two systems in contention.
+  The firmware is therefore **publish-only** — it subscribes to no MQTT topic
+  and drives no GPIO, which removes the whole class of "an MQTT message moves a
+  physical relay" failure. Revisit only if xComfort leaves the loop.
+
+- v0.9 — **Home Assistant discovery (firmware 0.8.0), §7, §10.** Phase 4.
+  `main/homeassistant.cpp` publishes one retained device-discovery payload on
+  every MQTT connect; entities appear with no YAML. Device identifiers, entity
+  naming and the state topic are upstream's verbatim, so a machine that once ran
+  upstream's firmware keeps its HA device and history.
+  Two forced deviations: esp-mqtt has no streaming publish, so the payload is
+  materialised and the MQTT buffer raised to 16 KB; and labels are read through
+  the converters C facade, because the definition headers *define* `labelDefs[]`
+  and including one from a second translation unit is a duplicate-symbol link
+  error.
+  Fixes a real gap rather than porting it: upstream infers device class from
+  `dataType`, which every protocol-S definition leaves `-1`, so every
+  temperature would have reached HA unitless and without statistics.
+  Empty entity keys are skipped and logged — upstream's `"????"` label would
+  otherwise emit a nameless component with `uniq_id` of just `espaltherma_`.
+
+- v0.8 — **Full register scan; 0x5A found (firmware 0.6.0-0.7.0), §5, §6.**
+  `POST /api/scan` walks all 256 registry IDs and classifies each. On this unit:
+  5 ok, 243 `0x15 0xEA` "not implemented", 0 bad CRC, 8 silent.
+  **`0x5A` answers with 18 bytes and a valid CRC and appears in no upstream
+  definition file, no upstream document, and nothing found on GitHub or the
+  wider web.** Six of its eight 16-bit channels drift continuously, so it
+  carries live data. `main/def/EKHBH008BA.h` — our own definition, derived from
+  `PROTOCOL_S_ROTEX.h` — polls it as eight probes. Full analysis, including the
+  raw-ADC hypothesis and how to test it, in `docs/REGISTER_0x5A.md`.
+  The first scan attempt panicked the board: the scan task's 4 KB stack could
+  not hold the query function's buffers plus the MQTT log hook's 256-byte line
+  buffer. Raised to 8 KB, and `/api/status` now reports `esp_reset_reason()` so
+  a crash is visible rather than inferred from a low uptime.
 
 - v0.7 — **Live on the heat pump; switched to the ROTEX mapping (firmware
   0.5.0), §5, §6.** The X10A link works: `0x53`/`0x54`/`0x55`/`0x56` all reply
@@ -104,17 +142,24 @@ the upstream code maps onto it*, and `CLAUDE.md` covers build/verify workflow.
 ## 1. Purpose
 
 Read every available operating value from a Daikin Altherma heat pump via its
-X10A service connector and expose them to Home Assistant over MQTT, plus
-control a small number of dry-contact outputs (thermostat, Smart Grid, safety
-relay). Same job as upstream ESPAltherma; different foundation.
+X10A service connector and expose them to Home Assistant over MQTT.
+Read-only: see §2 on why the control outputs are not ported. Same source
+material as upstream ESPAltherma; different foundation, narrower scope.
 
 ## 2. Scope
 
 **In scope:** ESP32 targets, X10A protocols I and S, MQTT publish + Home
-Assistant discovery, dry-contact outputs, runtime configuration, OTA.
+Assistant discovery, runtime configuration, OTA.
 
 **Out of scope:** ESP8266, M5Stack/M5StickC screens and battery telemetry,
 Daikin models outside the upstream definition set.
+
+**Also out of scope: controlling the heat pump.** The thermostat, Smart Grid
+and safety-relay outputs are not ported. This machine is controlled by an
+existing xComfort installation, so its thermostat contact is already driven;
+a second relay across the same input would put two systems in contention. The
+firmware is therefore **publish-only** - it subscribes to no MQTT topic and
+drives no output. See docs/PORTING.md phase 5.
 
 ## 3. Hardware interface
 
