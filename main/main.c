@@ -142,6 +142,7 @@ void app_main(void)
     esp_ota_mark_app_valid_cancel_rollback();
 
     ESP_ERROR_CHECK(alt_settings_init());
+    alt_probe_rx_idle();   // sample RX before the UART driver claims the pin
     ESP_ERROR_CHECK(alt_serial_init());
 
     // WiFi and MQTT come up alongside the poll loop, not before it: the heat

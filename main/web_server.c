@@ -75,8 +75,14 @@ static const char PAGE[] =
 "</thead><tbody id='vals'><tr><td colspan='3'>loading...</td></tr></tbody></table>"
 "<p class='hint' id='vhint'></p>"
 "<h3 style='font-size:13px;color:#8b93a1;font-weight:500;margin:26px 0 8px'>X10A LINK</h3>"
-"<table><thead><tr><th>Reg</th><th>Last result</th><th>OK/fail</th><th>Raw bytes</th></tr>"
-"</thead><tbody id='diag'><tr><td colspan='4'>no queries yet</td></tr></tbody></table>"
+"<p class='hint' id='rxl'></p>"
+"<table><thead><tr><th>Reg</th><th>Proto</th><th>Last result</th><th>OK/fail</th><th>Raw bytes</th></tr>"
+"</thead><tbody id='diag'><tr><td colspan='5'>no queries yet</td></tr></tbody></table>"
+"<button class='go' onclick='probe()'>Probe both protocols</button>"
+"<p class='msg' id='pmsg'></p>"
+"<p class='hint'>Asks protocol I on 0x10/0x20/0x21/0x60/0x61 and protocol S on "
+"0x50/0x53/0x54/0x55/0x56. Whichever dialect the machine speaks will answer. "
+"Takes about 25 s; watch the table above.</p>"
 "</section>"
 
 "<section><table id='wifi'></table></section>"
@@ -122,11 +128,16 @@ static const char PAGE[] =
 "document.getElementById('vhint').textContent="
 "v.values.length+' of '+v.total+' labels have been read at least once.';"
 "var d=await (await fetch('/api/x10a')).json();"
+"document.getElementById('rxl').textContent='RX line at boot: '+d.rxIdle;"
 "document.getElementById('diag').innerHTML=d.registries.length?d.registries.map(x=>"
-"'<tr><td class=\"r\">'+esc(x.reg)+'</td><td>'+esc(x.status)+'</td><td>'+x.ok+'/'+x.fail+"
-"'</td><td class=\"r\">'+esc(x.raw||'-')+'</td></tr>'"
-").join(''):'<tr><td colspan=\"4\">no queries yet</td></tr>';"
+"'<tr><td class=\"r\">'+esc(x.reg)+'</td><td>'+esc(x.proto)+'</td><td>'+esc(x.status)+"
+"'</td><td>'+x.ok+'/'+x.fail+'</td><td class=\"r\">'+esc(x.raw||'-')+'</td></tr>'"
+").join(''):'<tr><td colspan=\"5\">no queries yet</td></tr>';"
 "}catch(e){}}"
+"async function probe(){var m=document.getElementById('pmsg');m.className='msg';"
+"m.textContent='probing both protocols, ~25 s...';"
+"try{await fetch('/api/probe',{method:'POST'});setTimeout(load,26000);}"
+"catch(e){m.className='msg err';m.textContent='Failed: '+e;}}"
 "async function cfg(){var c=await (await fetch('/api/config')).json();"
 "document.getElementById('uri').value=c.uri;document.getElementById('usr').value=c.user;"
 "document.getElementById('pwdh').textContent=c.passSet?"
@@ -225,7 +236,11 @@ static esp_err_t values_get(httpd_req_t *req)
 static esp_err_t x10a_get(httpd_req_t *req)
 {
     httpd_resp_set_type(req, "application/json");
-    httpd_resp_sendstr_chunk(req, "{\"registries\":[");
+
+    char head[128];
+    snprintf(head, sizeof(head), "{\"rxIdle\":\"%s\",\"probing\":%s,\"registries\":[",
+             alt_rx_idle_state(), alt_probe_running() ? "true" : "false");
+    httpd_resp_sendstr_chunk(req, head);
 
     char chunk[420];
     size_t n = alt_diag_count();
@@ -234,20 +249,30 @@ static esp_err_t x10a_get(httpd_req_t *req)
         const char *status = "";
         const char *hex = "";
         int bytes = 0;
+        char proto = 0;
         uint32_t ok = 0, fail = 0;
-        if (!alt_diag_at(i, &reg, &status, &hex, &bytes, &ok, &fail)) {
+        if (!alt_diag_at(i, &reg, &proto, &status, &hex, &bytes, &ok, &fail)) {
             continue;
         }
         snprintf(chunk, sizeof(chunk),
-                 "%s{\"reg\":\"0x%02x\",\"status\":\"%s\",\"bytes\":%d,"
+                 "%s{\"reg\":\"0x%02x\",\"proto\":\"%c\",\"status\":\"%s\",\"bytes\":%d,"
                  "\"ok\":%u,\"fail\":%u,\"raw\":\"%s\"}",
-                 i ? "," : "", reg, status, bytes,
+                 i ? "," : "", reg, proto ? proto : 63, status, bytes,
                  (unsigned)ok, (unsigned)fail, hex);
         httpd_resp_sendstr_chunk(req, chunk);
     }
 
     httpd_resp_sendstr_chunk(req, "]}");
     return httpd_resp_sendstr_chunk(req, NULL);
+}
+
+// Asks BOTH protocols across their known registries and records every result,
+// so "is this machine protocol I or S" is answerable from the web UI.
+static esp_err_t probe_post(httpd_req_t *req)
+{
+    alt_probe_start();
+    httpd_resp_sendstr(req, "started");
+    return ESP_OK;
 }
 
 static esp_err_t config_get(httpd_req_t *req)
@@ -408,6 +433,7 @@ esp_err_t alt_web_start(void)
         {.uri = "/api/status",  .method = HTTP_GET,  .handler = status_get},
         {.uri = "/api/values",  .method = HTTP_GET,  .handler = values_get},
         {.uri = "/api/x10a",    .method = HTTP_GET,  .handler = x10a_get},
+        {.uri = "/api/probe",   .method = HTTP_POST, .handler = probe_post},
         {.uri = "/api/config",  .method = HTTP_GET,  .handler = config_get},
         {.uri = "/api/config",  .method = HTTP_POST, .handler = config_post},
         {.uri = "/ota/upload",  .method = HTTP_POST, .handler = ota_post},

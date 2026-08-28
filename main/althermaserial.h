@@ -36,14 +36,32 @@ void alt_format_buffer(const uint8_t *buf, size_t len, char *out, size_t out_len
 // the serial log is not available where it matters. Every query records its
 // outcome here instead, and the web UI reads it back over WiFi.
 
-#define ALT_DIAG_MAX 8
+#define ALT_DIAG_MAX 24
 
-// Reads back the last outcome for the i-th registry queried since boot.
-// `status` is a short human-readable result ("ok", "timeout: no bytes", ...)
-// and `hex` the raw bytes received, both pointing at internal storage.
-// Returns false when i is past the number of registries seen.
-bool alt_diag_at(size_t i, uint8_t *reg_id, const char **status,
+// Reads back the last outcome for the i-th (protocol, registry) pair queried
+// since boot. `status` is a short human-readable result ("ok",
+// "timeout: no bytes", ...) and `hex` the raw bytes received, both pointing at
+// internal storage. Returns false when i is past the number of pairs seen.
+bool alt_diag_at(size_t i, uint8_t *reg_id, char *protocol, const char **status,
                  const char **hex, int *bytes, uint32_t *ok_count,
                  uint32_t *fail_count);
 
 size_t alt_diag_count(void);
+
+// Samples the RX pin BEFORE the UART driver takes it over, to tell a connected
+// line from a dead one. An idle UART TX holds its line high; a low reading
+// means GPIO16 is not reaching anything that drives it. Call once, first thing,
+// before alt_serial_init().
+void alt_probe_rx_idle(void);
+
+// Human-readable result of the above ("idle high (line driven)", ...).
+const char *alt_rx_idle_state(void);
+
+// Sweeps both protocols across their common registries and records every
+// outcome in the diagnostics table, so "is this machine protocol I or S" can be
+// answered from the web UI without a cable. Runs in its own task; returns
+// immediately. Poll the diagnostics to see results appear.
+void alt_probe_start(void);
+
+// True while a sweep is running.
+bool alt_probe_running(void);

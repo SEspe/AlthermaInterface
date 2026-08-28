@@ -8,19 +8,26 @@
 #include <string.h>
 
 #include "driver/uart.h"
+#include "driver/gpio.h"
 #include "esp_log.h"
+#include "esp_rom_sys.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 
 #include "board_config.h"
 
 static const char *TAG = "x10a";
 
+static SemaphoreHandle_t s_uart_lock;
+static int query_registry_locked(uint8_t reg_id, uint8_t *buf, char protocol);
+
 // ---- link diagnostics, readable over HTTP (see althermaserial.h) --------
 
 typedef struct {
     uint8_t  reg_id;
+    char     proto;
     bool     used;
     char     status[64];
     char     hex[ALT_REPLY_MAX * 5 + 1];
@@ -31,10 +38,10 @@ typedef struct {
 
 static alt_diag_t s_diag[ALT_DIAG_MAX];
 
-static alt_diag_t *diag_for(uint8_t reg_id)
+static alt_diag_t *diag_for(uint8_t reg_id, char proto)
 {
     for (size_t i = 0; i < ALT_DIAG_MAX; i++) {
-        if (s_diag[i].used && s_diag[i].reg_id == reg_id) {
+        if (s_diag[i].used && s_diag[i].reg_id == reg_id && s_diag[i].proto == proto) {
             return &s_diag[i];
         }
     }
@@ -42,16 +49,17 @@ static alt_diag_t *diag_for(uint8_t reg_id)
         if (!s_diag[i].used) {
             s_diag[i].used = true;
             s_diag[i].reg_id = reg_id;
+            s_diag[i].proto = proto;
             return &s_diag[i];
         }
     }
     return NULL;
 }
 
-static void diag_record(uint8_t reg_id, const char *status, const uint8_t *buf,
-                        int len, bool ok)
+static void diag_record(uint8_t reg_id, char proto, const char *status,
+                        const uint8_t *buf, int len, bool ok)
 {
-    alt_diag_t *d = diag_for(reg_id);
+    alt_diag_t *d = diag_for(reg_id, proto);
     if (!d) {
         return;
     }
@@ -80,7 +88,7 @@ size_t alt_diag_count(void)
     return n;
 }
 
-bool alt_diag_at(size_t i, uint8_t *reg_id, const char **status,
+bool alt_diag_at(size_t i, uint8_t *reg_id, char *protocol, const char **status,
                  const char **hex, int *bytes, uint32_t *ok_count,
                  uint32_t *fail_count)
 {
@@ -88,12 +96,99 @@ bool alt_diag_at(size_t i, uint8_t *reg_id, const char **status,
         return false;
     }
     if (reg_id)     *reg_id     = s_diag[i].reg_id;
+    if (protocol)   *protocol   = s_diag[i].proto;
     if (status)     *status     = s_diag[i].status;
     if (hex)        *hex        = s_diag[i].hex;
     if (bytes)      *bytes      = s_diag[i].bytes;
     if (ok_count)   *ok_count   = s_diag[i].ok_count;
     if (fail_count) *fail_count = s_diag[i].fail_count;
     return true;
+}
+
+// ---- RX line check ------------------------------------------------------
+
+static char s_rx_idle[48] = "not sampled";
+
+const char *alt_rx_idle_state(void)
+{
+    return s_rx_idle;
+}
+
+void alt_probe_rx_idle(void)
+{
+    // Sampled before uart_set_pin() claims the pin. An idle UART TX on the far
+    // end holds the line HIGH, so a steady low means GPIO16 is not connected to
+    // anything driving it (or is shorted to ground). No pull is enabled: a pull
+    // would manufacture the very level we are trying to measure.
+    const gpio_config_t io = {
+        .pin_bit_mask = 1ULL << ALT_UART_RX_PIN,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    if (gpio_config(&io) != ESP_OK) {
+        strlcpy(s_rx_idle, "sample failed", sizeof(s_rx_idle));
+        return;
+    }
+
+    int highs = 0;
+    const int samples = 200;
+    for (int i = 0; i < samples; i++) {
+        highs += gpio_get_level(ALT_UART_RX_PIN);
+        esp_rom_delay_us(250);   // ~50 ms total, several character times at 9600
+    }
+
+    if (highs == samples) {
+        strlcpy(s_rx_idle, "idle high (line driven)", sizeof(s_rx_idle));
+    } else if (highs == 0) {
+        strlcpy(s_rx_idle, "idle LOW (not driven?)", sizeof(s_rx_idle));
+    } else {
+        snprintf(s_rx_idle, sizeof(s_rx_idle), "toggling (%d%% high, traffic?)",
+                 highs * 100 / samples);
+    }
+    ESP_LOGI(TAG, "RX GPIO%d before UART init: %s", ALT_UART_RX_PIN, s_rx_idle);
+}
+
+// ---- protocol sweep -----------------------------------------------------
+
+static volatile bool s_probe_running;
+
+bool alt_probe_running(void)
+{
+    return s_probe_running;
+}
+
+static void probe_task(void *arg)
+{
+    (void)arg;
+    // Registries each protocol is known to answer. If the machine speaks the
+    // other dialect, its own set replies and ours stays silent - which is the
+    // whole point of asking both.
+    static const uint8_t regs_i[] = {0x10, 0x20, 0x21, 0x60, 0x61};
+    static const uint8_t regs_s[] = {0x50, 0x53, 0x54, 0x55, 0x56};
+    uint8_t buf[ALT_REPLY_MAX];
+
+    ESP_LOGI(TAG, "protocol sweep starting");
+    for (size_t i = 0; i < sizeof(regs_i) / sizeof(regs_i[0]); i++) {
+        alt_query_registry(regs_i[i], buf, 'I');
+    }
+    for (size_t i = 0; i < sizeof(regs_s) / sizeof(regs_s[0]); i++) {
+        alt_query_registry(regs_s[i], buf, 'S');
+    }
+    ESP_LOGI(TAG, "protocol sweep done");
+
+    s_probe_running = false;
+    vTaskDelete(NULL);
+}
+
+void alt_probe_start(void)
+{
+    if (s_probe_running) {
+        return;
+    }
+    s_probe_running = true;
+    xTaskCreate(&probe_task, "x10a_probe", 4096, NULL, 4, NULL);
 }
 
 uint8_t alt_crc(const uint8_t *src, size_t len)
@@ -139,6 +234,8 @@ esp_err_t alt_serial_init(void)
         return err;
     }
 
+    s_uart_lock = xSemaphoreCreateMutex();
+
     ESP_LOGI(TAG, "UART%d up: RX=GPIO%d TX=GPIO%d, %d 8E1",
              (int)ALT_UART_PORT, ALT_UART_RX_PIN, ALT_UART_TX_PIN, ALT_UART_BAUD);
     return ESP_OK;
@@ -167,6 +264,20 @@ static int64_t now_ms(void)
 }
 
 int alt_query_registry(uint8_t reg_id, uint8_t *buf, char protocol)
+{
+    // The poll loop and the sweep task both reach this, and two interleaved
+    // queries on one UART would corrupt each other's replies.
+    if (s_uart_lock) {
+        xSemaphoreTake(s_uart_lock, portMAX_DELAY);
+    }
+    int result = query_registry_locked(reg_id, buf, protocol);
+    if (s_uart_lock) {
+        xSemaphoreGive(s_uart_lock);
+    }
+    return result;
+}
+
+static int query_registry_locked(uint8_t reg_id, uint8_t *buf, char protocol)
 {
     uint8_t prep[4] = {0x03, 0x40, reg_id, 0x00};
     int query_len = 4;
@@ -215,7 +326,7 @@ int alt_query_registry(uint8_t reg_id, uint8_t *buf, char protocol)
         // Error reply, common to both protocols.
         if (len == 2 && buf[0] == 0x15 && buf[1] == 0xea) {
             ESP_LOGW(TAG, "reg 0x%02x: HP returned 0x15 0xEA (command not understood)", reg_id);
-            diag_record(reg_id, "HP error 0x15 0xEA", buf, len, false);
+            diag_record(reg_id, protocol, "HP error 0x15 0xEA", buf, len, false);
             vTaskDelay(pdMS_TO_TICKS(500));
             return -1;
         }
@@ -232,7 +343,7 @@ int alt_query_registry(uint8_t reg_id, uint8_t *buf, char protocol)
                      reg_id, len, reply_len, hex);
             snprintf(status, sizeof(status), "timeout: %d of %d bytes", len, reply_len);
         }
-        diag_record(reg_id, status, buf, len, false);
+        diag_record(reg_id, protocol, status, buf, len, false);
         vTaskDelay(pdMS_TO_TICKS(500));
         return -1;
     }
@@ -246,11 +357,11 @@ int alt_query_registry(uint8_t reg_id, uint8_t *buf, char protocol)
         char status[64];
         snprintf(status, sizeof(status), "bad CRC: want 0x%02x got 0x%02x",
                  want, buf[len - 1]);
-        diag_record(reg_id, status, buf, len, false);
+        diag_record(reg_id, protocol, status, buf, len, false);
         return -1;
     }
 
     ESP_LOGI(TAG, "reg 0x%02x: %s (CRC OK)", reg_id, hex);
-    diag_record(reg_id, "ok", buf, len, true);
+    diag_record(reg_id, protocol, "ok", buf, len, true);
     return len;
 }
