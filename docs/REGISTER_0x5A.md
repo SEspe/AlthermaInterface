@@ -134,19 +134,60 @@ The alternative reading, unsigned/10, gives 0, 86.2, 51.9, 57.9, 51.2, 51.3,
 anything else this machine reports, and 102.0 never moving argues against it
 being a temperature.
 
+## Channel map, after the DHW cycle
+
+The space-heating run could not identify a tank channel, because the tank barely
+moved (36.7–37.2 °C). An overnight capture across a **DHW cycle** — 471 samples
+a minute apart, tank driven 35.8 → 46.3 °C while outlet water spiked to 55 °C —
+supplied the independent movement that was missing.
+
+| Offset | Channel | best match | r |
+|---|---|---|---|
+| 0 | zero reference | constant 0 | — |
+| **2** | **DHW tank** | tank | **−0.992** |
+| **4** | **inlet water** | inlet | **−0.999** |
+| **6** | **refrigerant liquid side** | refrigerant | **−1.000** |
+| 8 | unidentified | refrigerant −0.980 / outlet −0.976 | not separated |
+| **10** | **outlet water** | outlet | **−0.999** |
+| 12 | unidentified | nothing, ≤0.03 | — |
+| 14 | full-scale reference | constant 1020 | — |
+
+**`5A@2` is the decisive result.** It sat flat at ~863 counts through hours of
+space heating, correlating with nothing, and moved only when the tank did. That
+selectivity is what identifies it: the other channels all rose together during
+the DHW cycle, because the whole machine warms at once (tank vs outlet r =
+0.583), so a strong correlation alone would prove little.
+
+The earlier identifications tightened as well, which is what real sensor channels
+should do once exercised across 25 K instead of 5 K: `5A@4` went from −0.928 to
+−0.999, `5A@6` to a flat −1.000.
+
+**Still open.** `5A@8` and `5A@10` remain correlated with each other at 0.977;
+`5A@10` is decisively outlet water, `5A@8` leans marginally to refrigerant but
+not enough to call. `5A@12` is inert — 0.007 against the tank across 257 samples
+— so whatever it is, it is not a temperature.
+
+### Scaling
+
+These are **ADC counts**, not a physical quantity, and the definition file reads
+them with conversion 151 (unsigned 16-bit, unscaled). An earlier reading divided
+by 10, which made the first idle sample look like plausible temperatures
+(86.4, 51.3, 57.2 …). That was a coincidence of range: 1020 is 10-bit full scale,
+and dividing it by 10 happens to land at 102.0.
+
 ## What is still open
 
-- **`5A@2`** (~86.3) and **`5A@12`** (~0.9): correlate with nothing measured.
-- **`5A@8` vs `5A@10`**: both track outlet water, so one is probably a different
-  sensor that merely moves with it. A **DHW cycle** should separate them, since
-  it drives the tank temperature independently of the space-heating loop — and
-  note no probe tracked DHW tank temperature during this run, which was pure
-  space heating.
+- **`5A@8`** — correlated 0.977 with `5A@10`, so the two have not been
+  separated. `5A@10` is decisively outlet water; `5A@8` leans marginally to
+  refrigerant. Separating them needs a condition that moves one without the
+  other, which neither space heating nor a DHW cycle provided. A defrost or
+  cooling cycle might.
+- **`5A@12`** — inert across 471 samples covering a 25 K swing. Not a
+  temperature. Possibly a status or counter byte pair read as one 16-bit value.
 
-`main/def/EKHBH008BA.h` polls `0x5A` every cycle as eight `Probe 5A at N`
-labels, so both `0x54` temperatures and `0x5A` channels are already in every
+`main/def/EKHBH008BA.h` polls `0x5A` every cycle, so the channels are in every
 MQTT payload and in Home Assistant history. Answering the above needs no
-firmware change, only a DHW cycle in the recorded history.
+firmware change, only the right operating mode in the recorded history.
 
 ## Reproducing
 

@@ -1,7 +1,7 @@
 # FSD — AlthermaInterface
 
-**Version:** 1.1
-**Firmware:** 1.0.1
+**Version:** 1.2
+**Firmware:** 1.1.0
 **Target:** ESP32 (ESP32-WROOM devkit, 4 MB flash), ESP-IDF v6.0.1
 **Heat pump:** Daikin Altherma LT split hydrobox **EKHBH / EKHBX 008BA** —
 **protocol S**, ROTEX value mapping
@@ -11,6 +11,31 @@ is authoritative for *what the firmware must do*; `docs/PORTING.md` covers *how
 the upstream code maps onto it*.
 
 ## Changelog
+
+- v1.2 — **Registry `0x5A` channels identified and named (firmware 1.1.0), §6.**
+  An overnight capture across a **DHW cycle** — 471 samples, tank driven
+  35.8 → 46.3 °C while outlet water spiked to 55 °C — supplied the independent
+  movement that a space-heating run could not. Four channels are now named:
+
+  | offset | channel | r |
+  |---|---|---|
+  | 2 | DHW tank | −0.992 |
+  | 4 | inlet water | −0.999 |
+  | 6 | refrigerant liquid side | −1.000 |
+  | 10 | outlet water | −0.999 |
+
+  plus the zero and full-scale references at 0 and 14. `5A@2` is the decisive
+  result: it sat flat through hours of space heating and moved only with the
+  tank, and that selectivity is what identifies it — during the DHW cycle
+  everything warmed together (tank vs outlet r = 0.583), so correlation alone
+  would prove little.
+  The channels are now read with conversion 151, **unscaled**, because they are
+  ADC counts. The earlier ÷10 made the first idle sample look like plausible
+  temperatures; that was a coincidence of range, not meaning.
+  **This changes MQTT payload keys and therefore Home Assistant entity IDs**:
+  the eight `Probe 5A at N` entities are replaced by named `ADC …` ones.
+  Still open: `5A@8` has not been separated from `5A@10` (r = 0.977), and
+  `5A@12` is inert across a 25 K swing so it is not a temperature.
 
 - v1.1 — **X10A pins become dropdowns; CI (firmware 1.0.1), §3.1, §10.** The
   Config tab offers only GPIOs that exist and can do the job — GPIO6-11 (SPI
