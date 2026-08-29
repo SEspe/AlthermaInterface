@@ -60,6 +60,24 @@ full scale, shows here before the conversion in `0x54` hides it.
 Full method, correlation tables and raw captures in
 [`docs/REGISTER_0x5A.md`](docs/REGISTER_0x5A.md).
 
+`0x53`, the boolean register, is documented upstream but only partly verified.
+On this machine **payload offset 3 is confirmed as the electric heater
+contactor** — heard engaging three times while three concurrent captures caught
+the byte flipping — so upstream's `External heater?` loses its question mark.
+That bit is worth having in Home Assistant: resistive backup heat is the
+expensive operating mode.
+
+**Telling DHW from space heating** is `0x53` offset 5,
+`Priority to domestic water` — confirmed by stopping the room thermostat to get
+an all-zero baseline, forcing a DHW call, and *watching the 3-way valve divert*
+as the bit went 0 → 1.
+
+Note what does **not** work: `Operation Mode` reads `Heating` continuously —
+through a full DHW cycle and even while the machine sits idle with the pump off.
+It is the configured season, not a running state. Tank temperature also lags,
+and *falls* during the first minutes of a cycle. See
+[`docs/REGISTER_0x53.md`](docs/REGISTER_0x53.md).
+
 ## Credit — this is a derivative of ESPAltherma
 
 The X10A protocol work, the registry/value conversion logic and the ~40 heat

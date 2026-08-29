@@ -24,8 +24,18 @@
 
 LabelDef labelDefs[] = {
     // ---- 0x53: booleans (upstream ROTEX mapping) ----
+    //
+    // Offset 3 is CONFIRMED against observed hardware: the payload byte flips
+    // 0x00 -> 0x01 exactly when the electric heater contactor engages, watched
+    // at the unit on 2026-08-29. Upstream labels it "External heater?" with a
+    // question mark; the question is answered, so the mark is dropped.
+    //
+    // Note for anyone testing this: a contactor pulse of 15-30 s produces no
+    // measurable change in outlet water temperature, because the circulating
+    // volume swamps it. Absence of a thermal response is not evidence the bit
+    // is lying.
     {0x53, 0, 200, 1, -1, "Circulation pump"},
-    {0x53, 3, 200, 1, -1, "External heater?"},
+    {0x53, 3, 200, 1, -1, "Electric heater contactor"},
     {0x53, 5, 200, 1, -1, "Priority to domestic water"},
     {0x53, 6, 200, 1, -1, "Burner inhibit from solaris"},
 

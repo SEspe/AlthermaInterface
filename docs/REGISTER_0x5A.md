@@ -4,6 +4,9 @@ Found on a **Daikin Altherma LT split hydrobox EKHBH/EKHBX 008BA** (BA
 generation, ~2009–2011, R410A, 8-pin ROTEX-style X10A), by scanning all 256
 registry IDs on protocol S.
 
+For the boolean register `0x53` — what is confirmed there, and the unfinished
+search for the 3-way valve — see [`REGISTER_0x53.md`](REGISTER_0x53.md).
+
 `0x5A` appears in **no upstream ESPAltherma definition file**, in **no upstream
 documentation**, and in nothing found on GitHub or the wider web. Upstream's 40
 definition files use only `0x50`, `0x53`, `0x54`, `0x55` and `0x56` between

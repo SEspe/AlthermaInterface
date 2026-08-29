@@ -1,7 +1,7 @@
 # FSD — AlthermaInterface
 
-**Version:** 1.7
-**Firmware:** 1.4.0
+**Version:** 1.8
+**Firmware:** 1.5.0
 **Target:** ESP32 (ESP32-WROOM devkit, 4 MB flash), ESP-IDF v6.0.1
 **Heat pump:** Daikin Altherma LT split hydrobox **EKHBH / EKHBX 008BA** —
 **protocol S**, ROTEX value mapping
@@ -11,6 +11,29 @@ is authoritative for *what the firmware must do*; `docs/PORTING.md` covers *how
 the upstream code maps onto it*.
 
 ## Changelog
+
+- v1.8 — **`0x53` offset 3 confirmed as the electric heater contactor
+  (firmware 1.5.0), §6.** The bit upstream labels `External heater?` — with its
+  own question mark — was verified directly: the owner heard the contactor
+  engage three times while three concurrent captures recorded payload offset 3
+  flipping `0x00` → `0x01` in exactly three clusters, with the CRC dropping one
+  count as a single byte rose. It is renamed `Electric heater contactor`, which
+  changes its Home Assistant entity from
+  `binary_sensor.espaltherma_external_heater` to
+  `binary_sensor.espaltherma_electric_heater_contactor`; the old entity goes
+  unavailable and must be deleted once. The bit is worth surfacing because
+  resistive backup heat is the expensive operating mode. New
+  `docs/REGISTER_0x53.md` records this and two further confirmations made the same
+  day, each by a deliberate physical action: **offset 0 `Circulation pump`**
+  (stopping the room thermostat drove it 1 → 0) and **offset 5 `Priority to
+  domestic water`**, which answers the question that started the investigation —
+  the **3-way valve** was watched physically diverting as the bit went 0 → 1 on a
+  forced DHW call, with outlet water rising 6.9 K within a minute. Three of
+  upstream's four `0x53` labels are now verified. `Operation Mode` is recorded as
+  unusable for this: it reads `Heating` through a full DHW cycle and even while
+  the machine sits idle. The document also carries two warnings: a brief contactor pulse produces no
+  measurable water temperature change, so absence of one proves nothing; and
+  15 s polling cannot count contactor events or support duty-cycle figures.
 
 - v1.7 — **Repository links in the OTA tab (firmware 1.4.0), §10.** The OTA tab
   links to the configured GitHub repository and to its releases page, so the
