@@ -12,22 +12,29 @@ the upstream code maps onto it*.
 
 ## Changelog
 
-- v1.13 — **DHCP works: modem sleep was eating the lease (firmware 1.7.0),
-  §4, §3.2.** A newly provisioned board never got an address, while every other
-  device on the same network leased normally. The long-standing explanation in
-  this project — *"the AP associates the board but never answers its DHCP
-  DISCOVER"* — was **wrong**, and the static IP on the reference unit was
-  compensating for a bug on our side.
+- v1.13 — **Never sleep the radio without a lease (firmware 1.7.0), §4,
+  §3.2.** A newly provisioned board never got a DHCP address, while every other
+  device on the same network leased normally.
 
-  Comparing against the sibling BirdBox project found it: BirdBox sets
-  `WIFI_PS_NONE` explicitly, its header recording the reason as a *"v1.32
-  lesson: modem-sleep latency ruins HTTP"*. AlthermaInterface ran
-  `WIFI_PS_MIN_MODEM` — the IDF default, and from 1.6.0 set explicitly at every
-  level. Modem sleep parks the radio between DTIM beacons, and a DHCP `OFFER` or
-  `ACK` arriving in that window is missed. Whether it happens at all depends on
-  how the access point buffers frames, which is why it fails here and not on
-  other networks. The "restart the DHCP client" retry already in `wifi.c` was a
-  workaround someone had built around the real cause.
+  **The investigation produced a wrong answer first, and it is recorded here
+  because the wrong answer was convincing.** Comparing against the sibling
+  BirdBox project showed BirdBox sets `WIFI_PS_NONE` explicitly, its header
+  recording a *"v1.32 lesson: modem-sleep latency ruins HTTP"*, while
+  AlthermaInterface ran `WIFI_PS_MIN_MODEM`. Modem sleep parks the radio between
+  DTIM beacons, so a DHCP `OFFER` or `ACK` arriving in that window is missed — a
+  real, documented ESP32 failure that depends on how the access point buffers
+  frames, which would neatly explain why only this device is affected.
+
+  **Hardware disproved it.** With power save verifiably off (`wifi:Set ps
+  type: 0` in the boot log) a freshly provisioned board still sits associated
+  with `dhcpc status 1` and never receives a lease. Modem sleep was not the
+  cause, and the older note in `wifi.c` blaming the access point may well have
+  been right all along. Current suspicion is that the network refuses *new*
+  clients — the devices that work already hold leases — which the DHCP pool size
+  and lease table would settle. **Unresolved.**
+
+  The change below is kept anyway, on its own merits: the code was genuinely
+  wrong to allow modem sleep without an address, whatever else is also wrong.
 
   The fix is stated as an invariant rather than a startup special case, because
   a startup-only fix leaves a trap: a unit that leases an address, enables modem
