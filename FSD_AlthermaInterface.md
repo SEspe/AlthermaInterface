@@ -1,7 +1,7 @@
 # FSD — AlthermaInterface
 
-**Version:** 1.2
-**Firmware:** 1.1.0
+**Version:** 1.3
+**Firmware:** 1.1.1
 **Target:** ESP32 (ESP32-WROOM devkit, 4 MB flash), ESP-IDF v6.0.1
 **Heat pump:** Daikin Altherma LT split hydrobox **EKHBH / EKHBX 008BA** —
 **protocol S**, ROTEX value mapping
@@ -11,6 +11,16 @@ is authoritative for *what the firmware must do*; `docs/PORTING.md` covers *how
 the upstream code maps onto it*.
 
 ## Changelog
+
+- v1.3 — **ADC channels show the temperature they correspond to (firmware
+  1.1.1), §6, §10.** Each identified `0x5A` channel now displays the matching
+  `0x54` reading beside its count, plus a counts-per-degree ratio.
+  The temperature is read from `0x54`, **not derived from the count**: the
+  thermistor curve has not been characterised, and converting the count would
+  present a guess as a measurement.
+  The ratio is likewise marked as an indicator only — an NTC is not linear, so
+  counts-per-degree drifts across the range. Its use is comparative: a channel
+  whose ratio wanders away from its neighbours is the tell for a failing sensor.
 
 - v1.2 — **Registry `0x5A` channels identified and named (firmware 1.1.0), §6.**
   An overnight capture across a **DHW cycle** — 471 samples, tank driven

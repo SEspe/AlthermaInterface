@@ -78,6 +78,12 @@ static const char PAGE[] =
 "<section class='on'><table><thead><tr><th>Reg</th><th>Value</th><th class='v'>Reading</th></tr>"
 "</thead><tbody id='vals'><tr><td colspan='3'>loading...</td></tr></tbody></table>"
 "<p class='hint' id='vhint'></p>"
+"<p class='hint'>Channels from registry 0x5A are raw ADC counts. The "
+"temperature beside them is the matching reading from 0x54, not a conversion "
+"of the count - the thermistor curve has not been characterised. The "
+"counts-per-degree ratio is an indicator only, since an NTC is not linear; a "
+"channel whose ratio drifts away from the others is the tell for a failing "
+"sensor.</p>"
 "</section>"
 
 "<section>"
@@ -213,8 +219,26 @@ static const char PAGE[] =
 "row('Uptime',s.uptime+' s')+row('X10A protocol',s.protocol)+"
 "row('Refrigerant',s.refrigerant)+row('X10A pins','RX '+s.rxPin+' / TX '+s.txPin);"
 "var v=await (await fetch('/api/values')).json();"
-"document.getElementById('vals').innerHTML=v.values.length?v.values.map(x=>"
-"'<tr><td class=\"r\">'+esc(x.reg)+'</td><td>'+esc(x.label)+'</td><td class=\"v\">'+esc(x.value)+'</td></tr>'"
+// Each identified 0x5A channel is the raw ADC behind one 0x54 temperature.
+// The count on its own means little, so the temperature it corresponds to is
+// shown beside it - read from 0x54, not derived from the count, because the
+// ADC-to-temperature curve of these thermistors has not been characterised.
+"var VMAP={};v.values.forEach(x=>VMAP[x.label]=x.value);"
+"var ADCMAP={'ADC DHW tank':'DHW tank temp.(C)',"
+"'ADC inlet water':'Inlet water temp.(C)',"
+"'ADC outlet water':'Outlet Water Temp.(C)',"
+"'ADC refrigerant liquid side':'Refrig. Temp. liquid side(C)'};"
+"document.getElementById('vals').innerHTML=v.values.length?v.values.map(function(x){"
+"var t=ADCMAP[x.label]!==undefined?VMAP[ADCMAP[x.label]]:undefined;"
+// The ratio is an indicator, not a calibration: an NTC is not linear, so
+// counts-per-degree drifts across the range. Shown because a channel whose
+// ratio wanders far from its neighbours is the tell for a failing sensor.
+"var f=(t!==undefined&&parseFloat(t)>1)?(parseFloat(x.value)/parseFloat(t)).toFixed(1):null;"
+"var extra=t!==undefined?'<span style=\"color:#5c6472;font-size:12px\"> "
+"&nbsp;corresponds to '+esc(t)+' \\u00b0C'+(f?' \\u00b7 '+f+' counts/\\u00b0C':'')"
+"+'</span>':'';"
+"return '<tr><td class=\"r\">'+esc(x.reg)+'</td><td>'+esc(x.label)+"
+"'</td><td class=\"v\">'+esc(x.value)+extra+'</td></tr>';}"
 ").join(''):'<tr><td colspan=\"3\">no values read yet</td></tr>';"
 "document.getElementById('vhint').textContent="
 "v.values.length+' of '+v.total+' labels have been read at least once.';"
