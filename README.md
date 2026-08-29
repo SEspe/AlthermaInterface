@@ -35,10 +35,29 @@ so it cannot command the heat pump. See `FSD_AlthermaInterface.md` §2.
 
 A scan of all 256 registry IDs on this machine turned up **registry `0x5A`**,
 which appears in no upstream definition file and in no published documentation.
-Correlating it against a live heating cycle showed it is the **raw ADC readout**
-of the sensors `0x54` reports converted — individual channels track inlet water,
-outlet water and refrigerant temperature at r ≈ −0.93 to −0.99, bracketed by a
-zero channel and a 1020 (10-bit full-scale) channel. Full method and data in
+Correlating it against a live heating cycle and a DHW cycle showed it is the
+**raw ADC readout** of the sensors `0x54` reports converted:
+
+| offset | channel | r |
+|---|---|---|
+| 0 | zero reference | — |
+| 2 | DHW tank | −0.992 |
+| 4 | inlet water | −0.999 |
+| 6 | refrigerant liquid side | −1.000 |
+| 8 | water circuit, unassigned | — |
+| 10 | outlet water | −0.999 |
+| 12 | unconnected input | — |
+| 14 | full-scale reference (1020) | — |
+
+Every channel moves *inversely* to its temperature — the NTC signature — and the
+block is bracketed by a zero and a 10-bit full-scale reference. Offset 12 was
+tested against temperature, outdoor air and power consumption and excluded from
+all three; it reads as an unconnected input.
+
+Its value is diagnostic: a sensor drifting toward either rail, or open-circuit at
+full scale, shows here before the conversion in `0x54` hides it.
+
+Full method, correlation tables and raw captures in
 [`docs/REGISTER_0x5A.md`](docs/REGISTER_0x5A.md).
 
 ## Credit — this is a derivative of ESPAltherma

@@ -71,9 +71,16 @@ LabelDef labelDefs[] = {
     {0x5A, 2,  151, 2, -1, "ADC DHW tank"},                // r = -0.992 vs tank
     {0x5A, 4,  151, 2, -1, "ADC inlet water"},             // r = -0.999
     {0x5A, 6,  151, 2, -1, "ADC refrigerant liquid side"}, // r = -1.000
-    {0x5A, 8,  151, 2, -1, "ADC unidentified offset 8"},   // tracks outlet/refrigerant, not separated
+    // Shadows inlet water within a couple of counts and swings with the
+    // compressor (530 -> 301 during a DHW cycle), so it is a water-circuit
+    // sensor - but it has not been separated from offset 10 (r = 0.977).
+    {0x5A, 8,  151, 2, -1, "ADC water circuit (unassigned)"},
     {0x5A, 10, 151, 2, -1, "ADC outlet water"},            // r = -0.999
-    {0x5A, 12, 151, 2, -1, "ADC unidentified offset 12"},  // correlates with nothing measured
+    // Inert: 5-15 counts regardless of temperature, time of day or whether the
+    // compressor runs. Not a temperature, not outdoor air, not power - all three
+    // tested and excluded (docs/REGISTER_0x5A.md). Reads like an unconnected
+    // input, most likely for optional hardware this unit does not have.
+    {0x5A, 12, 151, 2, -1, "ADC unused input"},
     {0x5A, 14, 151, 2, -1, "ADC full-scale reference"},    // constant 1020
 };
 

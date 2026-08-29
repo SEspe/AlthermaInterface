@@ -175,15 +175,55 @@ by 10, which made the first idle sample look like plausible temperatures
 (86.4, 51.3, 57.2 …). That was a coincidence of range: 1020 is 10-bit full scale,
 and dividing it by 10 happens to land at 102.0.
 
+## Offset 12: an unconnected input
+
+Three hypotheses have been tested against the overnight capture and excluded.
+
+**Not a temperature.** Inert across 471 samples covering a 25 K swing, sitting
+at 5–15 counts. On this machine's curve colder means *higher* counts (555 ↔
+25.9 °C, ≈ −10 counts/°C), so any plausible temperature would read in the
+hundreds. Nine counts is the bottom rail.
+
+**Not outdoor air.** No overnight drift, when outdoor temperature falls steadily
+through a night. With outside air measured at 13.5 °C, the curve implies roughly
+680 counts; nothing reads near that. Structurally this is the hydrobox — the
+outdoor sensor belongs to the outdoor unit.
+
+**Not power or load.** Split by whether the compressor was running
+(refrigerant > 35 °C):
+
+| | n | mean | range |
+|---|---|---|---|
+| compressor running | 41 | 8.6 | 5–14 |
+| compressor idle | 428 | 8.9 | 5–15 |
+
+Identical, and marginally *lower* under load. Power consumption would be near
+zero at idle and rise sharply with the compressor. For contrast, `5A@8` moved
+530 → 301 across the same split, which is what a channel that *is* measuring
+something looks like.
+
+**Best explanation: an unconnected ADC input.** A few counts of noise around a
+near-zero value, unmoved by temperature, time of day or machine state, is what a
+floating or grounded input reads. Note this is a *reading*, not a status field —
+a status field would hold discrete steady values rather than wander ±5 counts.
+
+Most likely it is an input for hardware this unit does not have. The ROTEX
+definition carries entries for optional kit (`Burner inhibit from solaris`), and
+a solar, second-zone or external-tank sensor input that was never wired would
+read exactly like this. A machine with that option fitted would be the test.
+
 ## What is still open
 
 - **`5A@8`** — correlated 0.977 with `5A@10`, so the two have not been
-  separated. `5A@10` is decisively outlet water; `5A@8` leans marginally to
-  refrigerant. Separating them needs a condition that moves one without the
-  other, which neither space heating nor a DHW cycle provided. A defrost or
-  cooling cycle might.
-- **`5A@12`** — inert across 471 samples covering a 25 K swing. Not a
-  temperature. Possibly a status or counter byte pair read as one 16-bit value.
+  separated. `5A@10` is decisively outlet water; `5A@8` shadows *inlet* water
+  within a couple of counts all night and swings with the compressor (530 → 301
+  during the DHW cycle), so it is certainly a water-circuit sensor — possibly a
+  second inlet probe or a heat-exchanger position. Separating it needs a
+  condition that moves one without the other, which neither space heating nor a
+  DHW cycle provided. A defrost or cooling cycle might.
+- **`5A@8` vs the estimate** — the interpolated `~n °C est.` shown in the web UI
+  assumes it shares the water-circuit curve. That is consistent with everything
+  observed, but it is an assumption, not a measurement.
 
 `main/def/EKHBH008BA.h` polls `0x5A` every cycle, so the channels are in every
 MQTT payload and in Home Assistant history. Answering the above needs no

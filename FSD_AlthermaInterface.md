@@ -1,7 +1,7 @@
 # FSD — AlthermaInterface
 
-**Version:** 1.4
-**Firmware:** 1.2.0
+**Version:** 1.5
+**Firmware:** 1.3.0
 **Target:** ESP32 (ESP32-WROOM devkit, 4 MB flash), ESP-IDF v6.0.1
 **Heat pump:** Daikin Altherma LT split hydrobox **EKHBH / EKHBX 008BA** —
 **protocol S**, ROTEX value mapping
@@ -11,6 +11,22 @@ is authoritative for *what the firmware must do*; `docs/PORTING.md` covers *how
 the upstream code maps onto it*.
 
 ## Changelog
+
+- v1.5 — **`0x5A` offset 12 identified as an unconnected input (firmware
+  1.3.0), §6.** Three hypotheses tested against the overnight capture and all
+  excluded: not a temperature (inert across a 25 K swing, and 9 counts sits on
+  the bottom rail where the curve implies hundreds), not outdoor air (no
+  overnight drift; with outside measured at 13.5 °C the curve implies ~680
+  counts, and this is the hydrobox — the outdoor sensor belongs to the outdoor
+  unit), and not power or load (mean 8.6 with the compressor running against 8.9
+  idle, where `5A@8` moved 530 → 301 across the same split).
+  A few counts of noise around zero, unmoved by anything, reads as an
+  **unconnected ADC input** — most likely for optional hardware this unit does
+  not have, of the kind the ROTEX definition already carries entries for.
+  Labels updated: offset 12 becomes `ADC unused input`, and offset 8 becomes
+  `ADC water circuit (unassigned)`, since it shadows inlet water within a couple
+  of counts and swings with the compressor but has not been separated from
+  offset 10.
 
 - v1.4 — **Reading / Corresponds to / Factor as columns; estimates for the
   unidentified channels (firmware 1.2.0), §6, §10.** The Daikin Data table gains
