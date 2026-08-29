@@ -138,12 +138,6 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(err);
 
-    // Rollback contract (CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE): an image that
-    // reaches here has booted far enough to be worth keeping. Once OTA is in
-    // use, move this call to after the first successful HP query so a firmware
-    // that cannot talk to the heat pump rolls back instead.
-    esp_ota_mark_app_valid_cancel_rollback();
-
     ESP_ERROR_CHECK(alt_settings_init());
     alt_probe_rx_idle();   // sample RX before the UART driver claims the pin
     ESP_ERROR_CHECK(alt_serial_init());
@@ -166,6 +160,19 @@ void app_main(void)
     ESP_ERROR_CHECK(alt_mqtt_start());
     alt_mqtt_log_redirect();
     ESP_ERROR_CHECK(alt_web_start());
+
+    // Rollback contract (CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE): only now, with
+    // settings, UART, WiFi, MQTT and the web server all up, is this image worth
+    // keeping. It used to be marked valid immediately after nvs_flash_init(),
+    // which disarmed rollback for every later failure - firmware 1.6.1 aborted
+    // in alt_web_start() and boot-looped a deployed unit that the bootloader
+    // could have rescued by itself.
+    //
+    // Deliberately NOT tied to a successful heat pump query, as an earlier note
+    // here suggested: the pump can be powered down for service, and rolling the
+    // firmware back because the machine is off would be a worse failure than the
+    // one it prevents.
+    esp_ota_mark_app_valid_cancel_rollback();
 
     converter_set_refrigerant(ALT_REFRIGERANT);
     char protocol = converter_protocol();

@@ -49,6 +49,14 @@ static const char *kDiscoveryEnd =
 // payload. They have no registry and no converter.
 #define ESP_SENSOR_WIFI_RSSI 998
 #define ESP_SENSOR_FREE_MEM  997
+#define ESP_SENSOR_MIN_MEM   996
+#define ESP_SENSOR_MAX_BLOCK 995
+#define ESP_SENSOR_UPTIME    994
+
+// No die temperature among these: the ESP32 classic has no supported internal
+// temperature sensor. The undocumented ROM temprature_sens_read() exists but is
+// uncalibrated and reads a near-constant value on most chips, so publishing it
+// would put an invented measurement into Home Assistant's long-term statistics.
 
 // Lowercase, keep alphanumerics, spaces become underscores, drop the rest.
 // A label made entirely of punctuation yields an EMPTY key and a unique_id of
@@ -75,7 +83,11 @@ static std::string getSensorDeviceAndUnit(const char *label, int convid, int dat
     case ESP_SENSOR_WIFI_RSSI:
         return "\"p\":\"sensor\",\"dev_cla\":\"signal_strength\",\"unit_of_meas\":\"dBm\",";
     case ESP_SENSOR_FREE_MEM:
+    case ESP_SENSOR_MIN_MEM:
+    case ESP_SENSOR_MAX_BLOCK:
         return "\"p\":\"sensor\",\"dev_cla\":\"data_size\",\"unit_of_meas\":\"B\",";
+    case ESP_SENSOR_UPTIME:
+        return "\"p\":\"sensor\",\"dev_cla\":\"duration\",\"unit_of_meas\":\"s\",";
     case 1:
         return "\"p\":\"sensor\",\"dev_cla\":\"temperature\",\"unit_of_meas\":\"\xC2\xB0" "C\",";
     case 2:
@@ -107,7 +119,10 @@ static std::string getConversion(int dataType)
 {
     switch (dataType) {
     case ESP_SENSOR_WIFI_RSSI: return "|replace('dBm','')|int";
-    case ESP_SENSOR_FREE_MEM:  return "|int";
+    case ESP_SENSOR_FREE_MEM:
+    case ESP_SENSOR_MIN_MEM:
+    case ESP_SENSOR_MAX_BLOCK:
+    case ESP_SENSOR_UPTIME:    return "|int";
     default:                   return "";
     }
 }
@@ -184,6 +199,12 @@ extern "C" const char *alt_ha_discovery_payload(size_t *len)
 
     append(makeSensorJson("WifiRSSI", -1, ESP_SENSOR_WIFI_RSSI, true));
     append(makeSensorJson("FreeMem", -1, ESP_SENSOR_FREE_MEM, true));
+    // Diagnostics that matter on a device meant to run for months: the minimum
+    // free heap since boot is what reveals a slow leak, and the largest free
+    // block reveals fragmentation, which a plain free-heap figure hides.
+    append(makeSensorJson("MinFreeMem", -1, ESP_SENSOR_MIN_MEM, true));
+    append(makeSensorJson("MaxFreeBlock", -1, ESP_SENSOR_MAX_BLOCK, true));
+    append(makeSensorJson("Uptime", -1, ESP_SENSOR_UPTIME, true));
 
     size_t emitted = 2;
     for (size_t i = 0; i < count; i++) {

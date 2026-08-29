@@ -28,6 +28,10 @@
 #include "althermaserial.h"
 #include "converters.h"
 #include "mqtt.h"
+#include "esp_chip_info.h"
+#include "esp_flash.h"
+#include "esp_heap_caps.h"
+#include "esp_mac.h"
 #include "power.h"
 #include "settings.h"
 #include "version.h"
@@ -97,6 +101,12 @@ static const char PAGE[] =
 "</section>"
 
 "<section>"
+"<div style='margin:0 0 14px'>"
+"<button class='go' onclick='refresh()'>&#8635; Refresh</button> "
+"<button class='go' style='background:#7a3030' onclick='reboot()'>"
+"&#9211; Reboot device</button>"
+"<span class='hint' id='rfs' style='margin-left:12px'></span>"
+"</div>"
 "<h3 style='font-size:13px;color:#8b93a1;font-weight:500;margin:0 0 8px'>X10A LINK</h3>"
 "<p class='hint' id='rxl'></p>"
 "<table><thead><tr><th>Reg</th><th>Proto</th><th>Last result</th><th>OK/fail</th><th>Raw bytes</th></tr>"
@@ -107,6 +117,16 @@ static const char PAGE[] =
 "<table id='mq'></table>"
 "<h3 style='font-size:13px;color:#8b93a1;font-weight:500;margin:26px 0 8px'>DEVICE</h3>"
 "<table id='dev'></table>"
+"<h3 style='font-size:13px;color:#8b93a1;font-weight:500;margin:26px 0 8px'>"
+"ESP32 INTERNALS</h3>"
+"<table id='esp'></table>"
+"<p class='hint'>Minimum free heap is the low-water mark since boot: a slow "
+"leak shows there long before the current free figure looks wrong. Largest "
+"free block reveals fragmentation &mdash; plenty of free heap split into "
+"small pieces still fails a big allocation. This chip has <b>no usable "
+"internal temperature sensor</b>; the ESP32 classic's undocumented one is "
+"uncalibrated and reads a near-constant value, so no die temperature is "
+"shown rather than an invented one.</p>"
 "</section>"
 
 "<section>"
@@ -260,7 +280,24 @@ static const char PAGE[] =
 "<p class='msg' id='gmsg'></p></section>"
 
 "</main><script>"
-"var RUNNING='';"
+"var RUNNING='';var INT=null;"
+// Static chip facts are fetched once; a second periodic request would work
+// against the power profiles for values that cannot change.
+"async function internals(){try{INT=await (await fetch('/api/internals')).json();}"
+"catch(e){INT=null;}}"
+// The page already polls every 5 s; Refresh is for when you have just
+// changed something at the heat pump and do not want to wait for the tick.
+"async function refresh(){var e=document.getElementById('rfs');"
+"e.textContent='refreshing...';await load();"
+"e.textContent='updated '+new Date().toLocaleTimeString();}"
+// Reboot drops the link for a few seconds, so it asks first. The page
+// keeps polling and recovers on its own once the device answers again.
+"async function reboot(){"
+"if(!confirm('Reboot the device? It will be unreachable for a few seconds.'))return;"
+"var e=document.getElementById('rfs');e.textContent='rebooting...';"
+"try{await fetch('/api/reboot',{method:'POST'});"
+"e.textContent='reboot requested; reconnecting...';}"
+"catch(x){e.textContent='reboot requested; reconnecting...';}}"
 "function tab(i,b){"
 "document.querySelectorAll('section').forEach((s,n)=>s.className=n==i?'on':'');"
 "document.querySelectorAll('nav button').forEach(x=>x.className='');b.className='on';}"
@@ -284,6 +321,19 @@ static const char PAGE[] =
 "row('Reset reason',s.resetReason)+row('Free heap',s.heap+' bytes')+"
 "row('Uptime',s.uptime+' s')+row('X10A protocol',s.protocol)+"
 "row('Refrigerant',s.refrigerant)+row('X10A pins','RX '+s.rxPin+' / TX '+s.txPin);"
+"var kb=function(b){return (b/1024).toFixed(1)+' KiB';};"
+"var e=INT?"
+"row('Chip',INT.model+' rev '+INT.revision+', '+INT.cores+' core'+(INT.cores>1?'s':''))+"
+"row('Flash',kb(INT.flash)+' ('+INT.flashKind+')')+"
+"row('MAC (station)',INT.mac)+row('ESP-IDF',INT.idf)+"
+"row('Heap total',kb(INT.heapTotal))"
+":'';"
+"e+=row('Free heap',kb(s.heap))+row('Min free heap (since boot)',kb(s.minHeap))+"
+"row('Largest free block',kb(s.maxBlock))+row('Tasks',s.tasks)+"
+"row('CPU',s.cpuMhz+' MHz')+row('Power profile',s.power)+"
+"row('WiFi TX power',s.txDbm+' dBm')+row('Publish interval',s.interval+' s')+"
+"row('Die temperature','not available on ESP32 classic');"
+"document.getElementById('esp').innerHTML=e;"
 "var v=await (await fetch('/api/values')).json();"
 // Each identified 0x5A channel is the raw ADC behind one 0x54 temperature.
 // The count on its own means little, so the temperature it corresponds to is
@@ -461,7 +511,7 @@ static const char PAGE[] =
 "else{m.className='msg err';m.textContent='Failed: '+x.responseText;}};"
 "x.onerror=()=>{m.className='msg err';m.textContent='Upload failed.';};"
 "x.setRequestHeader('Content-Type','application/octet-stream');x.send(f);}"
-"load();cfg();wcfg();setInterval(load,5000);"
+"internals().then(load);cfg();wcfg();setInterval(load,5000);"
 "</script></body></html>";
 
 static esp_err_t root_get(httpd_req_t *req)
@@ -496,7 +546,8 @@ static esp_err_t status_get(httpd_req_t *req)
              "\"partition\":\"%s\",\"resetReason\":%d,\"heap\":%u,\"uptime\":%lld,"
              "\"rxPin\":%d,\"txPin\":%d,\"pubOk\":%u,\"pubFail\":%u,"
              "\"connects\":%u,\"disconnects\":%u,\"lastPub\":%lld,"
-             "\"power\":\"%s\",\"cpuMhz\":%d,\"txDbm\":%.2f,\"interval\":%d}",
+             "\"power\":\"%s\",\"cpuMhz\":%d,\"txDbm\":%.2f,\"interval\":%d,"
+             "\"minHeap\":%u,\"maxBlock\":%u,\"tasks\":%u}",
              FIRMWARE_VERSION, alt_wifi_ssid(), ip, alt_wifi_rssi(),
              alt_wifi_channel(), bssid,
              alt_wifi_is_connected() ? "true" : "false",
@@ -513,7 +564,10 @@ static esp_err_t status_get(httpd_req_t *req)
              alt_power_level_name(alt_settings_power_level()),
              alt_power_cpu_mhz(alt_settings_power_level()),
              alt_power_tx_quarter_dbm(alt_settings_power_level()) / 4.0,
-             alt_settings_poll_interval_s());
+             alt_settings_poll_interval_s(),
+             (unsigned)esp_get_minimum_free_heap_size(),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT),
+             (unsigned)uxTaskGetNumberOfTasks());
 
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_send(req, body, HTTPD_RESP_USE_STRLEN);
@@ -730,6 +784,68 @@ static void reboot_task(void *arg)
     // Long enough for the HTTP response to reach the browser.
     vTaskDelay(pdMS_TO_TICKS(1000));
     esp_restart();
+}
+
+// Chip and build facts that cannot change while the device runs, so the page
+// fetches this once at load rather than on every 5 s tick - a second periodic
+// request would work against the power profiles.
+//
+// No die temperature here: the ESP32 classic has no supported internal
+// temperature sensor (SOC_TEMP_SENSOR_SUPPORTED is not set for this target).
+// The undocumented ROM temprature_sens_read() exists but is uncalibrated and
+// reads a near-constant value on most chips, so reporting it would be inventing
+// a measurement.
+static esp_err_t internals_get(httpd_req_t *req)
+{
+    esp_chip_info_t chip;
+    esp_chip_info(&chip);
+
+    uint32_t flash_size = 0;
+    if (esp_flash_get_size(NULL, &flash_size) != ESP_OK) {
+        flash_size = 0;
+    }
+
+    uint8_t mac[6] = {0};
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+
+    const char *model = "unknown";
+    switch (chip.model) {
+    case CHIP_ESP32:   model = "ESP32";    break;
+    case CHIP_ESP32S2: model = "ESP32-S2"; break;
+    case CHIP_ESP32S3: model = "ESP32-S3"; break;
+    case CHIP_ESP32C3: model = "ESP32-C3"; break;
+    default: break;
+    }
+
+    char body[420];
+    snprintf(body, sizeof(body),
+             "{\"model\":\"%s\",\"revision\":\"%d.%d\",\"cores\":%d,"
+             "\"wifi\":%s,\"bt\":%s,\"ble\":%s,"
+             "\"flash\":%u,\"flashKind\":\"%s\","
+             "\"idf\":\"%s\",\"mac\":\"%02x:%02x:%02x:%02x:%02x:%02x\","
+             "\"heapTotal\":%u,\"tempSensor\":false}",
+             model, chip.revision / 100, chip.revision % 100, chip.cores,
+             (chip.features & CHIP_FEATURE_WIFI_BGN) ? "true" : "false",
+             (chip.features & CHIP_FEATURE_BT) ? "true" : "false",
+             (chip.features & CHIP_FEATURE_BLE) ? "true" : "false",
+             (unsigned)flash_size,
+             (chip.features & CHIP_FEATURE_EMB_FLASH) ? "embedded" : "external",
+             esp_get_idf_version(),
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5],
+             (unsigned)heap_caps_get_total_size(MALLOC_CAP_DEFAULT));
+
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_send(req, body, HTTPD_RESP_USE_STRLEN);
+}
+
+// Restarts the device. The response goes out first and reboot_task supplies the
+// delay, so the browser gets an answer rather than a dropped connection.
+static esp_err_t reboot_post(httpd_req_t *req)
+{
+    ESP_LOGW(TAG, "reboot requested from the web UI");
+    httpd_resp_sendstr(req, "OK");
+    xTaskCreate(reboot_task, "reboot", 2048, NULL, 5, NULL);
+    return ESP_OK;
 }
 
 static esp_err_t config_post(httpd_req_t *req)
@@ -1025,7 +1141,12 @@ static esp_err_t ota_post(httpd_req_t *req)
 esp_err_t alt_web_start(void)
 {
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
-    cfg.max_uri_handlers = 12;      // headroom; registrations past the cap 404 silently
+    // Was 12 with exactly 12 routes registered - no headroom at all, and the
+    // comment claiming overflow "404s silently" was wrong: httpd returns
+    // ESP_ERR_HTTPD_HANDLERS_FULL, which the ESP_ERROR_CHECK below turned into
+    // abort(). Adding two routes in 1.6.1 boot-looped a deployed unit, after
+    // WiFi and MQTT had already come up, so it looked like a network fault.
+    cfg.max_uri_handlers = 24;
     cfg.stack_size = 8192;          // OTA handler needs more than the default
     cfg.lru_purge_enable = true;
     cfg.recv_wait_timeout = 20;     // a large OTA body must not trip the default
@@ -1047,12 +1168,21 @@ esp_err_t alt_web_start(void)
         {.uri = "/api/wificfg", .method = HTTP_POST, .handler = wificfg_post},
         {.uri = "/api/config",  .method = HTTP_GET,  .handler = config_get},
         {.uri = "/api/config",  .method = HTTP_POST, .handler = config_post},
+        {.uri = "/api/reboot",  .method = HTTP_POST, .handler = reboot_post},
+        {.uri = "/api/internals", .method = HTTP_GET, .handler = internals_get},
         {.uri = "/ota/upload",  .method = HTTP_POST, .handler = ota_post},
         {.uri = "/ota/from-url",.method = HTTP_POST, .handler = otau_post},
         {.uri = "/ota/from-url",.method = HTTP_GET,  .handler = otau_get},
     };
+    // Deliberately not fatal. A missing endpoint costs one feature in the web
+    // UI; aborting here costs the whole device, and this runs on a board inside
+    // a heat pump where recovery means a serial cable.
     for (size_t i = 0; i < sizeof(routes) / sizeof(routes[0]); i++) {
-        ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &routes[i]));
+        esp_err_t rerr = httpd_register_uri_handler(s_server, &routes[i]);
+        if (rerr != ESP_OK) {
+            ESP_LOGE(TAG, "route %s not registered: %s - raise cfg.max_uri_handlers",
+                     routes[i].uri, esp_err_to_name(rerr));
+        }
     }
 
     char ip[16];

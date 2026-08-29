@@ -1,7 +1,7 @@
 # FSD — AlthermaInterface
 
-**Version:** 1.9
-**Firmware:** 1.6.0
+**Version:** 1.11
+**Firmware:** 1.6.2
 **Target:** ESP32 (ESP32-WROOM devkit, 4 MB flash), ESP-IDF v6.0.1
 **Heat pump:** Daikin Altherma LT split hydrobox **EKHBH / EKHBX 008BA** —
 **protocol S**, ROTEX value mapping
@@ -11,6 +11,63 @@ is authoritative for *what the firmware must do*; `docs/PORTING.md` covers *how
 the upstream code maps onto it*.
 
 ## Changelog
+
+- v1.11 — **Fix a boot loop caused by running out of HTTP route slots; re-arm
+  OTA rollback (firmware 1.6.2), §9, §10.** Firmware 1.6.1 added two routes to a
+  server configured for exactly 12, with 12 already registered. `httpd` returned
+  `ESP_ERR_HTTPD_HANDLERS_FULL`, `ESP_ERROR_CHECK` turned that into `abort()`,
+  and a deployed unit boot-looped five times before it was recovered over
+  serial. WiFi and MQTT both connected *before* the abort, so from the network
+  it looked like a link fault rather than a crash.
+
+  Three changes, because the bug needed one and the damage needed two:
+
+  1. `cfg.max_uri_handlers` raised from 12 to 24. The comment beside it claimed
+     headroom and claimed overflow would "404 silently"; both were false.
+  2. **Route registration is no longer fatal.** A route that fails to register
+     now logs an error and the firmware carries on. A missing endpoint costs one
+     feature; aborting costs the whole device, on a board where recovery means a
+     serial cable inside a heat pump.
+  3. **`esp_ota_mark_app_valid_cancel_rollback()` moved to after all
+     initialisation**, where it belongs. It had been called immediately after
+     `nvs_flash_init()`, so 1.6.1 marked itself valid milliseconds before
+     aborting, and the bootloader dutifully kept re-launching the broken image.
+     With the call at the end of setup, this exact failure would have rolled
+     back on its own.
+
+     It is deliberately **not** tied to a successful heat pump query, as an
+     earlier note in `main.c` suggested: the pump can be powered down for
+     service, and rolling firmware back because the machine is off is a worse
+     failure than the one it prevents.
+
+- v1.10 — **Debug tab gains Refresh, Reboot and an ESP32 internals section;
+  heap diagnostics reach MQTT (firmware 1.6.1), §7, §10.** The page already polls every 5 s, but **Refresh** forces an immediate
+  read for when something has just been changed at the heat pump and the next
+  tick is too long to wait; it stamps the time it last updated so a stalled page
+  is obvious. **Reboot** restarts the device over a new `POST /api/reboot`,
+  which answers before `reboot_task` fires so the browser gets a reply rather
+  than a dropped connection. It asks for confirmation first, since it drops the
+  link for a few seconds, and the page recovers on its own once the device
+  answers again. Until now a restart meant a power cycle or saving an unchanged
+  setting on the Config tab.
+
+  An **ESP32 INTERNALS** table reports chip model, revision and cores, flash
+  size, MAC, ESP-IDF version, heap total, task count and the running power
+  settings. Its static half comes from a new `GET /api/internals` fetched **once**
+  at page load rather than on the 5 s tick, because a second periodic request
+  would work against the power profiles for values that cannot change.
+
+  Three diagnostics also join the MQTT ATTR payload and Home Assistant
+  discovery: **MinFreeMem**, the low-water mark since boot, which is what reveals
+  a slow leak long before the current free figure looks wrong; **MaxFreeBlock**,
+  which reveals fragmentation that a plain free-heap number hides; and
+  **Uptime**. Existing keys are unchanged, so dashboards keep working.
+
+  **No die temperature is reported anywhere.** The ESP32 classic has no
+  supported internal temperature sensor — the undocumented ROM
+  `temprature_sens_read()` is uncalibrated and reads a near-constant value on
+  most chips. Publishing it would put an invented measurement into Home
+  Assistant's long-term statistics, so the UI says it is unavailable instead.
 
 - v1.9 — **Configurable power profiles (firmware 1.6.0), §3.2, §10.** The board
   is fed from the heat pump's internal 5 V regulator, which was never sized for

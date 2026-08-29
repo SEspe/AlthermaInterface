@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_system.h"
 #include "esp_timer.h"
@@ -181,6 +182,13 @@ esp_err_t alt_mqtt_publish_values(void)
                     (unsigned)esp_get_free_heap_size());
 
     // Overwrite the trailing comma, as upstream does.
+    pos += snprintf(s_json + pos, ALT_JSON_MAX - pos, "\"MinFreeMem\":\"%u\",",
+                    (unsigned)esp_get_minimum_free_heap_size());
+    pos += snprintf(s_json + pos, ALT_JSON_MAX - pos, "\"MaxFreeBlock\":\"%u\",",
+                    (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT));
+    pos += snprintf(s_json + pos, ALT_JSON_MAX - pos, "\"Uptime\":\"%lld\",",
+                    esp_timer_get_time() / 1000000);
+
     if (pos > 1 && s_json[pos - 1] == ',') {
         s_json[pos - 1] = '}';
     } else {
