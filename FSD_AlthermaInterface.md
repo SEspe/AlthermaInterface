@@ -1,7 +1,7 @@
 # FSD — AlthermaInterface
 
-**Version:** 1.14
-**Firmware:** 1.7.1
+**Version:** 1.15
+**Firmware:** 1.8.0
 **Target:** ESP32 (ESP32-WROOM devkit, 4 MB flash), ESP-IDF v6.0.1
 **Heat pump:** Daikin Altherma LT split hydrobox **EKHBH / EKHBX 008BA** —
 **protocol S**, ROTEX value mapping
@@ -11,6 +11,41 @@ is authoritative for *what the firmware must do*; `docs/PORTING.md` covers *how
 the upstream code maps onto it*.
 
 ## Changelog
+
+- v1.15 — **Identify `0x5A` offset 8: a buffered water-circuit sensor
+  (firmware 1.8.0), §6, §7.** The last unidentified live channel on the
+  undocumented register. `5A@8` and `5A@10` had tracked each other at r =
+  0.977 across every recorded condition, and neither space heating nor a DHW
+  cycle separated them — the doc predicted a defrost or cooling cycle would be
+  needed.
+
+  What separated them was neither: a **pump stop**. With circulation halted
+  and the tank booster running, outlet water fell 51 → 32 °C in 90 s while
+  `5A@8` held ~51 °C, decaying over three minutes to meet it — 177 counts
+  apart at the peak, r falling from 0.996 to 0.635. A 2×2 control over pump,
+  DHW priority and heater state shows the divergence follows the **pump**
+  (−82.9 counts mean with flow stopped) and not the heater (−2.6 while
+  circulating) or DHW priority (+5.9).
+
+  So `5A@8` is a water-circuit sensor with a long thermal time constant — a
+  vessel or body holding water rather than a pipe, which is why it is
+  indistinguishable from outlet water whenever anything is flowing. The backup
+  heater vessel fits the behaviour; that location remains inference, the lag
+  is measured. Label changed from `ADC water circuit (unassigned)` to `ADC
+  water circuit (buffered)`, which **renames the Home Assistant entity** — the
+  old one is orphaned and should be deleted by hand. Full reasoning in
+  `docs/REGISTER_0x5A.md`.
+
+  **Also, and found while making this release:** a version bump alone never
+  reached the app descriptor. `PROJECT_VER` is read from `main/version.h` by
+  `file(STRINGS)`, which runs at CMake *configure* time, and nothing declared
+  that file as a configure dependency — so editing it rebuilt the app while
+  CMake kept the previous value. This build first came out as **1.8.0** in
+  `/api/status` and **1.7.1** in the descriptor that the web installer and the
+  boot banner read: exactly the split v1.14 set out to remove, reintroduced
+  one layer down. `CMAKE_CONFIGURE_DEPENDS` now names `main/version.h`, so
+  touching it forces a reconfigure. Verified by rebuilding and reading the
+  version back out of the descriptor.
 
 - v1.14 — **One version number, from one place (firmware 1.7.1), §9, §10.**
   The web installer reported **1.6.3** for a build the device itself reported as

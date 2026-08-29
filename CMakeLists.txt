@@ -22,5 +22,14 @@ string(REGEX MATCH "\"([^\"]+)\"" _alt_ver_match "${_alt_ver_line}")
 set(PROJECT_VER "${CMAKE_MATCH_1}")
 message(STATUS "AlthermaInterface version ${PROJECT_VER} (from main/version.h)")
 
+# file(STRINGS) above runs at CONFIGURE time only. Without this, editing
+# main/version.h rebuilds the app but never re-reads the version: CMake has no
+# reason to re-run, PROJECT_VER keeps its previous value, and the app descriptor
+# ships the OLD number while /api/status reports the new one. That is the exact
+# split v1.14 set out to remove, reintroduced one layer down - firmware 1.8.0
+# first built as 1.8.0 in FIRMWARE_VERSION and 1.7.1 in the descriptor.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+             "${CMAKE_CURRENT_LIST_DIR}/main/version.h")
+
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(AlthermaInterface)

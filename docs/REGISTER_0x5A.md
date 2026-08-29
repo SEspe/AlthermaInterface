@@ -150,7 +150,7 @@ supplied the independent movement that was missing.
 | **2** | **DHW tank** | tank | **−0.992** |
 | **4** | **inlet water** | inlet | **−0.999** |
 | **6** | **refrigerant liquid side** | refrigerant | **−1.000** |
-| 8 | unidentified | refrigerant −0.980 / outlet −0.976 | not separated |
+| **8** | **water circuit, buffered** | outlet while flowing; decouples when flow stops | see below |
 | **10** | **outlet water** | outlet | **−0.999** |
 | 12 | unidentified | nothing, ≤0.03 | — |
 | 14 | full-scale reference | constant 1020 | — |
@@ -165,10 +165,9 @@ The earlier identifications tightened as well, which is what real sensor channel
 should do once exercised across 25 K instead of 5 K: `5A@4` went from −0.928 to
 −0.999, `5A@6` to a flat −1.000.
 
-**Still open.** `5A@8` and `5A@10` remain correlated with each other at 0.977;
-`5A@10` is decisively outlet water, `5A@8` leans marginally to refrigerant but
-not enough to call. `5A@12` is inert — 0.007 against the tank across 257 samples
-— so whatever it is, it is not a temperature.
+**Since resolved for `5A@8`** — see the next section; the separating condition
+turned out to be a pump stop, not a temperature. `5A@12` remains inert — 0.007
+against the tank across 257 samples — so whatever it is, it is not a temperature.
 
 ### Scaling
 
@@ -217,20 +216,80 @@ read exactly like this. A machine with that option fitted would be the test.
 
 ## What is still open
 
-- **`5A@8`** — correlated 0.977 with `5A@10`, so the two have not been
-  separated. `5A@10` is decisively outlet water; `5A@8` shadows *inlet* water
-  within a couple of counts all night and swings with the compressor (530 → 301
-  during the DHW cycle), so it is certainly a water-circuit sensor — possibly a
-  second inlet probe or a heat-exchanger position. Separating it needs a
-  condition that moves one without the other, which neither space heating nor a
-  DHW cycle provided. A defrost or cooling cycle might.
+- **`5A@8`’s physical location.** Its *behaviour* is now pinned down (next
+  section): a water-circuit sensor with a long thermal time constant. Which body
+  it sits in is inference. The test that would settle it is a run with the backup
+  heater driving the **space-heating** circuit rather than the tank booster — a
+  sensor downstream of the element should then read hotter than `5A@10` while
+  flow continues. No capture has produced that condition yet.
 - **`5A@8` vs the estimate** — the interpolated `~n °C est.` shown in the web UI
-  assumes it shares the water-circuit curve. That is consistent with everything
-  observed, but it is an assumption, not a measurement.
+  assumes it shares the water-circuit curve. Everything observed is consistent
+  with that, and the equilibrium behaviour above supports it, but it remains an
+  assumption rather than a measurement.
+- **`5A@12`** — still best explained as an unconnected input (section above).
 
 `main/def/EKHBH008BA.h` polls `0x5A` every cycle, so the channels are in every
 MQTT payload and in Home Assistant history. Answering the above needs no
 firmware change, only the right operating mode in the recorded history.
+
+## RESOLVED: separating `5A@8` from `5A@10`
+
+The prediction above was that a defrost or cooling cycle would be needed. What
+actually separated them was neither — it was a **pump stop**, caught on
+2026-08-29 during a forced DHW run (`captures/dhw_forced.csv`, 347 decoded
+samples, 09:14–09:59).
+
+While anything circulates, the two channels are the same reading for all
+practical purposes: mean difference **0.4 counts**, r = 0.996. The moment the
+circulation pump stopped, with the tank booster still energised, they came apart.
+
+| time | pump | inlet | outlet | `5A@4` | `5A@8` | `5A@10` |
+|---|---|---|---|---|---|---|
+| 09:45:45 | ON→OFF | 47.0 | 51.0 | 346 | 307 | 305 |
+| 09:46:48 | OFF | 32.1 | 42.0 | 493 | 308 | 391 |
+| 09:47:44 | OFF | 30.7 | 32.3 | 503 | **315** | **492** |
+| 09:48:48 | OFF | 31.5 | 31.5 | 496 | 392 | 502 |
+| 09:50:47 | OFF | 33.5 | 33.3 | 471 | 478 | 479 |
+
+Inlet, outlet and their ADC channels all collapse within 90 s of the flow
+stopping. `5A@8` does not move at all across those 90 s, then decays over roughly
+three minutes until it meets the others. At the peak the two are **177 counts
+apart** and r has fallen to **0.635**.
+
+### The control
+
+Pump, DHW priority and heater state vary independently in this capture, so each
+can be tested on its own. Mean `5A@8` − `5A@10`, in counts:
+
+| pump | DHW prio | ext heat | n | mean | sd | r |
+|---|---|---|---|---|---|---|
+| OFF | OFF | OFF | 114 | −3.1 | 7.2 | 0.872 |
+| OFF | OFF | **ON** | 38 | **−82.9** | 64.8 | 0.635 |
+| ON | ON | OFF | 169 | +2.8 | 6.5 | 0.993 |
+| ON | ON | **ON** | 26 | **+0.2** | 1.9 | 0.760 |
+
+The heater is **not** the cause: with the pump running, switching it on moves the
+difference by −2.6 counts. DHW priority is not the cause either (+5.9). Only
+losing flow does it — and then only while there is still heat in the machine to
+hold, which is why the pump-off/heater-off cell is unremarkable at −3.1.
+
+This control matters. The first reading of this data blamed the heater, because
+the heater-on rows do show the divergence — they are also, in this capture, the
+rows where the pump had stopped. Splitting the two apart reverses the conclusion.
+
+### What it means
+
+`5A@8` is a **water-circuit sensor**: it settles to the same temperature as inlet
+and outlet once the machine equilibrates, and it is nowhere near the tank, which
+was 20 K hotter and still climbing throughout the window. But it has a far longer
+thermal time constant than anything sitting in flowing water, so it is reading a
+body that *holds* water — a vessel or an exchanger mass, not a pipe.
+
+On this hydrobox the backup heater vessel fits that description, and it would
+also explain why the channel is indistinguishable from leaving water whenever the
+pump runs: the water passes straight through it. **That location is an inference
+from thermal behaviour; only the lag is measured.**
+
 
 ## Reproducing
 

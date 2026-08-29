@@ -81,10 +81,15 @@ LabelDef labelDefs[] = {
     {0x5A, 2,  151, 2, -1, "ADC DHW tank"},                // r = -0.992 vs tank
     {0x5A, 4,  151, 2, -1, "ADC inlet water"},             // r = -0.999
     {0x5A, 6,  151, 2, -1, "ADC refrigerant liquid side"}, // r = -1.000
-    // Shadows inlet water within a couple of counts and swings with the
-    // compressor (530 -> 301 during a DHW cycle), so it is a water-circuit
-    // sensor - but it has not been separated from offset 10 (r = 0.977).
-    {0x5A, 8,  151, 2, -1, "ADC water circuit (unassigned)"},
+    // Separated from offset 10 on 2026-08-29, by a pump stop rather than by any
+    // temperature. Circulating, the two are indistinguishable (r = 0.996, mean
+    // 0.4 counts apart). The moment flow stopped with the tank booster running,
+    // outlet water fell 51 -> 32 C in 90 s while this channel held ~51 C, then
+    // decayed over three minutes to meet it - 177 counts apart at the peak,
+    // r = 0.635. So it is a water-circuit sensor, but a thermally buffered one:
+    // a vessel or body holding water, not a pipe. The backup heater vessel fits
+    // the behaviour; that location is inference, the lag is measured.
+    {0x5A, 8,  151, 2, -1, "ADC water circuit (buffered)"},
     {0x5A, 10, 151, 2, -1, "ADC outlet water"},            // r = -0.999
     // Inert: 5-15 counts regardless of temperature, time of day or whether the
     // compressor runs. Not a temperature, not outdoor air, not power - all three
