@@ -94,6 +94,19 @@ static void on_mqtt_event(void *arg, esp_event_base_t base, int32_t id, void *da
 
 esp_err_t alt_mqtt_start(void)
 {
+    // A device flashed from a public release has no secrets.h and no NVS yet,
+    // so the broker URI is empty. esp_mqtt rejects that from
+    // esp_mqtt_client_set_uri() - reporting "Memory exhausted", which is
+    // thoroughly misleading - and until firmware 1.6.3 the ESP_ERROR_CHECK
+    // around this call turned it into abort(), boot-looping every freshly
+    // flashed board before its provisioning page could be served.
+    //
+    // Not being configured yet is the normal first-boot state, not a failure.
+    if (strlen(alt_settings_mqtt_uri()) == 0) {
+        ESP_LOGW(TAG, "no broker configured; MQTT stays off until one is saved");
+        return ESP_OK;
+    }
+
     esp_mqtt_client_config_t cfg = {0};
     // Broker details come from NVS (Config tab), not from secrets.h, once the
     // user has saved them once.

@@ -152,14 +152,28 @@ void app_main(void)
     ESP_ERROR_CHECK(alt_wifi_start());
     // Transmit power can only be set once the radio is started.
     alt_power_apply_wifi(alt_settings_power_level());
+
+    // The web server comes up BEFORE the connect wait. On an unprovisioned
+    // board the SoftAP is already serving and the config page is the entire
+    // point of it; blocking behind a station connection that cannot happen
+    // would leave 192.168.4.1 dead for the full 30 s.
+    esp_err_t werr = alt_web_start();
+    if (werr != ESP_OK) {
+        ESP_LOGE(TAG, "web UI unavailable: %s", esp_err_to_name(werr));
+    }
+
     if (!alt_wifi_wait_connected(30000)) {
         ESP_LOGW(TAG, "no WiFi after 30 s; carrying on regardless");
     }
     // Started unconditionally: esp-mqtt reconnects on its own once the network
     // appears, so a slow or absent AP must not permanently disable publishing.
-    ESP_ERROR_CHECK(alt_mqtt_start());
+    // Not fatal - a broker that is unset or unreachable must never cost the
+    // device its web UI, which is how it gets configured in the first place.
+    esp_err_t merr = alt_mqtt_start();
+    if (merr != ESP_OK) {
+        ESP_LOGE(TAG, "MQTT not started: %s", esp_err_to_name(merr));
+    }
     alt_mqtt_log_redirect();
-    ESP_ERROR_CHECK(alt_web_start());
 
     // Rollback contract (CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE): only now, with
     // settings, UART, WiFi, MQTT and the web server all up, is this image worth

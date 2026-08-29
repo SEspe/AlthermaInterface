@@ -1,7 +1,7 @@
 # FSD — AlthermaInterface
 
-**Version:** 1.11
-**Firmware:** 1.6.2
+**Version:** 1.12
+**Firmware:** 1.6.3
 **Target:** ESP32 (ESP32-WROOM devkit, 4 MB flash), ESP-IDF v6.0.1
 **Heat pump:** Daikin Altherma LT split hydrobox **EKHBH / EKHBX 008BA** —
 **protocol S**, ROTEX value mapping
@@ -11,6 +11,34 @@ is authoritative for *what the firmware must do*; `docs/PORTING.md` covers *how
 the upstream code maps onto it*.
 
 ## Changelog
+
+- v1.12 — **Fix: a board flashed from a public release could never finish
+  booting (firmware 1.6.3), §4, §6, §10.** Found by flashing the second board and
+  joining the `AlthermaInterface` provisioning AP, which answered nothing at
+  192.168.4.1. The AP itself was fine; the device behind it was boot-looping.
+
+  A release binary is built by CI, which has no `secrets.h`, so on a device with
+  empty NVS the **broker URI is the empty string**. `esp_mqtt_client_set_uri()`
+  rejects that — reporting `Memory exhausted`, which points nowhere near the
+  cause — and the `ESP_ERROR_CHECK` around `alt_mqtt_start()` turned it into
+  `abort()`. Every freshly flashed board died before its provisioning page could
+  be served, which is precisely the path a new user takes.
+
+  Two changes:
+
+  1. **An unconfigured broker is no longer an error.** `alt_mqtt_start()` returns
+     early with a warning when the URI is empty, because not being configured yet
+     is the normal first-boot state rather than a failure. The caller logs
+     instead of aborting: a broker that is unset or unreachable must never cost
+     the device the web UI, which is how it gets configured in the first place.
+  2. **The web server now starts before the 30 s connect wait.** On an
+     unprovisioned board the SoftAP is already serving and the config page is the
+     entire point of it; blocking behind a station connection that cannot happen
+     left 192.168.4.1 dead for the full timeout even once the abort was fixed.
+
+  This is the second `ESP_ERROR_CHECK`-on-a-non-critical-subsystem defect in two
+  releases (see v1.11). The pattern is now understood as the hazard it is on a
+  device whose recovery path is a serial cable inside a heat pump.
 
 - v1.11 — **Fix a boot loop caused by running out of HTTP route slots; re-arm
   OTA rollback (firmware 1.6.2), §9, §10.** Firmware 1.6.1 added two routes to a
