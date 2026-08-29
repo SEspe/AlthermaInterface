@@ -10,6 +10,7 @@
 #include "nvs_flash.h"
 
 #include "board_config.h"
+#include "power.h"
 
 // secrets.h is git-ignored and seeds first-boot defaults on a configured
 // machine. A clean clone does not have it, and must still build - the device
@@ -45,10 +46,19 @@ static const char *TAG = "settings";
 #define KEY_IP_GW     "ip_gw"
 #define KEY_IP_MASK   "ip_mask"
 #define KEY_IP_DNS    "ip_dns"
+#define KEY_PWR_LEVEL "pwr_level"
+#define KEY_POLL_S    "poll_s"
 
 static char s_uri[ALT_SETTING_MAX];
 static char s_user[ALT_SETTING_MAX];
 static char s_pass[ALT_SETTING_MAX];
+static int  s_power_level = ALT_POWER_OFF;
+static int  s_poll_s = ALT_POLL_DEFAULT_S;
+
+// A doubling series. 30 s was the fixed rate up to firmware 1.6.0; 60 s is now
+// the default because it halves the transmit bursts while still resolving
+// everything this machine does slowly enough to matter.
+static const int s_poll_options[] = {30, 60, 120, 240, 480};
 static int  s_rx_pin = ALT_UART_RX_PIN;
 static int  s_tx_pin = ALT_UART_TX_PIN;
 // owner/name of the GitHub repo whose releases the device may flash from.
@@ -130,6 +140,21 @@ esp_err_t alt_settings_init(void)
     if (nvs_get_i32(h, KEY_RX_PIN, &v) == ESP_OK) s_rx_pin = (int)v;
     if (nvs_get_i32(h, KEY_TX_PIN, &v) == ESP_OK) s_tx_pin = (int)v;
 
+    uint8_t lvl = 0;
+    if (nvs_get_u8(h, KEY_PWR_LEVEL, &lvl) == ESP_OK && alt_power_level_valid(lvl)) {
+        s_power_level = lvl;
+    }
+
+    int32_t pv = 0;
+    if (nvs_get_i32(h, KEY_POLL_S, &pv) == ESP_OK) {
+        for (size_t i = 0; i < sizeof(s_poll_options) / sizeof(s_poll_options[0]); i++) {
+            if (s_poll_options[i] == (int)pv) {
+                s_poll_s = (int)pv;
+                break;
+            }
+        }
+    }
+
     // A stored pair that somehow fails validation is discarded rather than
     // used: booting with GPIO6-11 as a UART pin would not come back.
     const char *bad = alt_settings_check_pins(s_rx_pin, s_tx_pin);
@@ -141,8 +166,9 @@ esp_err_t alt_settings_init(void)
     }
     nvs_close(h);
 
-    ESP_LOGI(TAG, "broker %s, user \"%s\", password %s, X10A RX=GPIO%d TX=GPIO%d",
-             s_uri, s_user, s_pass[0] ? "set" : "empty", s_rx_pin, s_tx_pin);
+    ESP_LOGI(TAG, "broker %s, user \"%s\", password %s, X10A RX=GPIO%d TX=GPIO%d, power \"%s\"",
+             s_uri, s_user, s_pass[0] ? "set" : "empty", s_rx_pin, s_tx_pin,
+             alt_power_level_name(s_power_level));
     return ESP_OK;
 }
 
@@ -328,4 +354,72 @@ esp_err_t alt_settings_set_mqtt(const char *uri, const char *user, const char *p
     }
     ESP_LOGI(TAG, "saved broker %s, user \"%s\"", s_uri, s_user);
     return ESP_OK;
+}
+
+int alt_settings_power_level(void) { return s_power_level; }
+
+esp_err_t alt_settings_set_power_level(int level)
+{
+    if (!alt_power_level_valid(level)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    s_power_level = level;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = nvs_set_u8(h, KEY_PWR_LEVEL, (uint8_t)level);
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
+
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "saved power level %d (%s)", level, alt_power_level_name(level));
+    }
+    return err;
+}
+
+int alt_settings_poll_option_count(void)
+{
+    return (int)(sizeof(s_poll_options) / sizeof(s_poll_options[0]));
+}
+
+int alt_settings_poll_option_at(int i)
+{
+    if (i < 0 || i >= alt_settings_poll_option_count()) {
+        return ALT_POLL_DEFAULT_S;
+    }
+    return s_poll_options[i];
+}
+
+int alt_settings_poll_interval_s(void) { return s_poll_s; }
+
+esp_err_t alt_settings_set_poll_interval_s(int seconds)
+{
+    bool ok = false;
+    for (int i = 0; i < alt_settings_poll_option_count(); i++) {
+        if (s_poll_options[i] == seconds) {
+            ok = true;
+            break;
+        }
+    }
+    if (!ok) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    s_poll_s = seconds;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = nvs_set_i32(h, KEY_POLL_S, (int32_t)seconds);
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
+
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "saved poll interval %d s", seconds);
+    }
+    return err;
 }

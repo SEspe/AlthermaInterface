@@ -22,6 +22,7 @@
 #include "board_config.h"
 #include "converters.h"
 #include "mqtt.h"
+#include "power.h"
 #include "settings.h"
 #include "version.h"
 #include "web_server.h"
@@ -30,7 +31,9 @@
 static const char *TAG = "main";
 
 // Upstream's FREQUENCY. Moves to NVS in phase 6.
-#define ALT_POLL_INTERVAL_MS 30000
+// Fixed at 30 s up to firmware 1.6.0; now a setting, read fresh each cycle so
+// a change takes effect on the next poll rather than needing the reboot the
+// Config tab happens to do anyway.
 
 // EKHBH/EKHBX 008BA is R410A. The converter defaults to R32, which would skew
 // every pressure->temperature conversion at 0x50, and no protocol-S definition
@@ -145,10 +148,16 @@ void app_main(void)
     alt_probe_rx_idle();   // sample RX before the UART driver claims the pin
     ESP_ERROR_CHECK(alt_serial_init());
 
+    // CPU frequency first, before the radio comes up. A rejected power level is
+    // logged and ignored rather than fatal - see power.c.
+    alt_power_apply_cpu(alt_settings_power_level());
+
     // WiFi and MQTT come up alongside the poll loop, not before it: the heat
     // pump is the point, and a broker that is down must not stop us reading and
     // logging values over serial.
     ESP_ERROR_CHECK(alt_wifi_start());
+    // Transmit power can only be set once the radio is started.
+    alt_power_apply_wifi(alt_settings_power_level());
     if (!alt_wifi_wait_connected(30000)) {
         ESP_LOGW(TAG, "no WiFi after 30 s; carrying on regardless");
     }
@@ -183,7 +192,7 @@ void app_main(void)
         alt_mqtt_publish_values();
 
         int64_t elapsed = (esp_timer_get_time() / 1000) - start;
-        int64_t wait = ALT_POLL_INTERVAL_MS - elapsed;
+        int64_t wait = (int64_t)alt_settings_poll_interval_s() * 1000 - elapsed;
         ESP_LOGI(TAG, "cycle took %lld ms, waiting %lld ms", elapsed, wait > 0 ? wait : 0);
         vTaskDelay(pdMS_TO_TICKS(wait > 0 ? wait : 0));
     }

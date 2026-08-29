@@ -28,6 +28,7 @@
 #include "althermaserial.h"
 #include "converters.h"
 #include "mqtt.h"
+#include "power.h"
 #include "settings.h"
 #include "version.h"
 #include "wifi.h"
@@ -187,6 +188,37 @@ static const char PAGE[] =
 "makes a working board look dead.</li>"
 "</ul>"
 
+"<h3 style='font-size:13px;color:#8b93a1;font-weight:500;margin:26px 0 8px'>"
+"POWER</h3>"
+"<label>Power profile</label>"
+"<select id='pwr' style='max-width:260px;padding:8px;background:#1c1f26;"
+"border:1px solid #333a46;border-radius:4px;color:#e6e6e6' onchange='pwrh()'>"
+"</select>"
+"<p class='hint' id='pwrd'></p>"
+"<label>Publish interval</label>"
+"<select id='ivl' style='max-width:260px;padding:8px;background:#1c1f26;"
+"border:1px solid #333a46;border-radius:4px;color:#e6e6e6'></select>"
+"<p class='hint'>How often the heat pump is read and published. Every "
+"publish is a WiFi transmit burst, so halving the rate halves the bursts "
+"&mdash; this is as much a power setting as a data one. The values this "
+"machine reports move slowly, so 60 s loses nothing in normal use; drop to "
+"30 s only while chasing something.</p>"
+"<p class='hint'>This board is powered from the heat pump's internal 5 V "
+"regulator, which was never sized for it. WiFi transmit bursts of a few "
+"hundred milliamps against a ~40 mA baseline are what load that regulator, "
+"so reducing transmit power helps more than shaving the idle draw.</p>"
+"<p class='hint'><b>Raise this one step at a time.</b> Lower transmit power "
+"means less margin on a weak link, and this device lives inside a heat pump: "
+"if it drops off the network you are back to serial or the SoftAP to recover "
+"it. The savings are estimates from the datasheet, not measurements.</p>"
+"<p class='hint'><b>What to watch afterwards.</b> Not RSSI &mdash; that is the "
+"signal arriving <i>from</i> the access point, so reducing our transmit power "
+"cannot move it. Watch <b>disconnects</b>, <b>connects</b> and <b>pubFail</b> "
+"on the Debug tab instead: those climb if the access point has stopped "
+"hearing us. RSSI is still worth reading <i>before</i> you reduce power, as a "
+"measure of margin &mdash; path loss is roughly symmetric, so a weak RSSI "
+"means the far end probably hears us just as weakly. The reference unit sits "
+"near -61 dBm; below about -75 dBm, leave transmit power alone.</p>"
 "<h3 style='font-size:13px;color:#8b93a1;font-weight:500;margin:26px 0 8px'>"
 "FIRMWARE SOURCE</h3>"
 "<label>GitHub repository (owner/name)</label><input id='ghr'>"
@@ -358,6 +390,13 @@ static const char PAGE[] =
 "pinopts(document.getElementById('rxp'),PINS.concat(PINS_IN),c.rxPin);"
 "pinopts(document.getElementById('txp'),PINS,c.txPin);pinchk();"
 "document.getElementById('ghr').value=c.repo;GH=c.repo;"
+"PWR=c.powerLevels||[];var ps=document.getElementById('pwr');"
+"ps.innerHTML=PWR.map(function(l,i){return '<option value=\"'+i+'\"'+"
+"(i==c.powerLevel?' selected':'')+'>'+i+' - '+l.name+'</option>';}).join('');"
+"pwrh();"
+"var iv=document.getElementById('ivl');"
+"iv.innerHTML=(c.intervals||[]).map(function(v){return '<option value=\"'+v+'\"'+"
+"(v==c.interval?' selected':'')+'>'+v+' s'+(v==60?' (default)':'')+'</option>';}).join('');"
 // The links follow the configured repository rather than being hard-coded, so
 // a fork points at its own project.
 "var gl=document.getElementById('ghlink'),gr=document.getElementById('ghrel');"
@@ -397,13 +436,18 @@ static const char PAGE[] =
 "if(!r.ok){m.className='msg err';m.textContent='Failed: '+await r.text();return;}"
 "setTimeout(ghPoll,1200);}"
 "catch(e){m.className='msg err';m.textContent='Failed: '+e;}}"
+"var PWR=[];"
+"function pwrh(){var i=+document.getElementById('pwr').value;"
+"document.getElementById('pwrd').textContent=(PWR[i]||{}).detail||'';}"
 "async function save(){var m=document.getElementById('cmsg');m.className='msg';"
 "if(!pinchk()){m.className='msg err';m.textContent='RX and TX must be different pins.';return;}"
 "m.textContent='saving...';"
 "var b={uri:document.getElementById('uri').value,user:document.getElementById('usr').value,"
 "pass:document.getElementById('pwd').value,"
 "rxPin:document.getElementById('rxp').value,txPin:document.getElementById('txp').value,"
-"repo:document.getElementById('ghr').value};"
+"repo:document.getElementById('ghr').value,"
+"powerLevel:document.getElementById('pwr').value,"
+"interval:document.getElementById('ivl').value};"
 "try{var r=await fetch('/api/config',{method:'POST',body:JSON.stringify(b)});"
 "m.textContent=r.ok?'Saved. Rebooting...':'Failed: '+await r.text();"
 "if(!r.ok)m.className='msg err';}catch(e){m.className='msg err';m.textContent='Failed: '+e;}}"
@@ -444,14 +488,15 @@ static esp_err_t status_get(httpd_req_t *req)
     int64_t last_pub = 0;
     alt_mqtt_stats(&pub_ok, &pub_fail, &connects, &disconnects, &last_pub);
 
-    char body[900];
+    char body[1024];
     snprintf(body, sizeof(body),
              "{\"version\":\"%s\",\"ssid\":\"%s\",\"ip\":\"%s\",\"rssi\":%d,"
              "\"channel\":%d,\"bssid\":\"%s\",\"wifi\":%s,\"mqtt\":%s,"
              "\"broker\":\"%s\",\"protocol\":\"%c\",\"refrigerant\":%d,"
              "\"partition\":\"%s\",\"resetReason\":%d,\"heap\":%u,\"uptime\":%lld,"
              "\"rxPin\":%d,\"txPin\":%d,\"pubOk\":%u,\"pubFail\":%u,"
-             "\"connects\":%u,\"disconnects\":%u,\"lastPub\":%lld}",
+             "\"connects\":%u,\"disconnects\":%u,\"lastPub\":%lld,"
+             "\"power\":\"%s\",\"cpuMhz\":%d,\"txDbm\":%.2f,\"interval\":%d}",
              FIRMWARE_VERSION, alt_wifi_ssid(), ip, alt_wifi_rssi(),
              alt_wifi_channel(), bssid,
              alt_wifi_is_connected() ? "true" : "false",
@@ -464,7 +509,11 @@ static esp_err_t status_get(httpd_req_t *req)
              alt_settings_rx_pin(), alt_settings_tx_pin(),
              (unsigned)pub_ok, (unsigned)pub_fail,
              (unsigned)connects, (unsigned)disconnects,
-             last_pub ? (esp_timer_get_time() / 1000 - last_pub) / 1000 : -1);
+             last_pub ? (esp_timer_get_time() / 1000 - last_pub) / 1000 : -1,
+             alt_power_level_name(alt_settings_power_level()),
+             alt_power_cpu_mhz(alt_settings_power_level()),
+             alt_power_tx_quarter_dbm(alt_settings_power_level()) / 4.0,
+             alt_settings_poll_interval_s());
 
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_send(req, body, HTTPD_RESP_USE_STRLEN);
@@ -619,15 +668,38 @@ static esp_err_t wificfg_post(httpd_req_t *req)
 
 static esp_err_t config_get(httpd_req_t *req)
 {
-    char body[320];
+    // Large enough for the three configured strings plus the power level table,
+    // whose descriptions are the longest part.
+    char body[1400];
     // The stored password is deliberately never sent to the browser; the UI
     // only learns whether one exists.
-    snprintf(body, sizeof(body),
+    int n = snprintf(body, sizeof(body),
              "{\"uri\":\"%s\",\"user\":\"%s\",\"passSet\":%s,"
-             "\"rxPin\":%d,\"txPin\":%d,\"repo\":\"%s\"}",
+             "\"rxPin\":%d,\"txPin\":%d,\"repo\":\"%s\","
+             "\"powerLevel\":%d,\"powerLevels\":[",
              alt_settings_mqtt_uri(), alt_settings_mqtt_user(),
              alt_settings_mqtt_pass_set() ? "true" : "false",
-             alt_settings_rx_pin(), alt_settings_tx_pin(), alt_settings_gh_repo());
+             alt_settings_rx_pin(), alt_settings_tx_pin(), alt_settings_gh_repo(),
+             alt_settings_power_level());
+
+    // The names and descriptions come from power.c so the UI cannot drift out
+    // of step with what the firmware actually does.
+    for (int i = 0; i < ALT_POWER_LEVEL_COUNT && n > 0 && n < (int)sizeof(body); i++) {
+        n += snprintf(body + n, sizeof(body) - n,
+                      "%s{\"name\":\"%s\",\"detail\":\"%s\"}",
+                      i ? "," : "", alt_power_level_name(i), alt_power_level_detail(i));
+    }
+    if (n > 0 && n < (int)sizeof(body)) {
+        n += snprintf(body + n, sizeof(body) - n, "],\"interval\":%d,\"intervals\":[",
+                      alt_settings_poll_interval_s());
+    }
+    for (int i = 0; i < alt_settings_poll_option_count() && n > 0 && n < (int)sizeof(body); i++) {
+        n += snprintf(body + n, sizeof(body) - n, "%s%d",
+                      i ? "," : "", alt_settings_poll_option_at(i));
+    }
+    if (n > 0 && n < (int)sizeof(body)) {
+        snprintf(body + n, sizeof(body) - n, "]}");
+    }
 
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_send(req, body, HTTPD_RESP_USE_STRLEN);
@@ -685,6 +757,33 @@ static esp_err_t config_post(httpd_req_t *req)
     char repo[ALT_SETTING_MAX] = {0};
     if (json_field(body, "repo", repo, sizeof(repo)) && repo[0] != 0) {
         alt_settings_set_gh_repo(repo);
+    }
+
+    // Absent means "leave it alone" here too.
+    char ivl[8] = {0};
+    if (json_field(body, "interval", ivl, sizeof(ivl)) && ivl[0] != 0) {
+        esp_err_t ierr = alt_settings_set_poll_interval_s(atoi(ivl));
+        if (ierr != ESP_OK) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "unsupported interval");
+            return ESP_FAIL;
+        }
+    }
+
+    // Absent means "leave it alone", so an older UI or a scripted POST that
+    // knows nothing about power profiles cannot silently reset one.
+    char pwr[8] = {0};
+    if (json_field(body, "powerLevel", pwr, sizeof(pwr)) && pwr[0] != 0) {
+        int lvl = atoi(pwr);
+        if (!alt_power_level_valid(lvl)) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "unknown power level");
+            return ESP_FAIL;
+        }
+        esp_err_t lerr = alt_settings_set_power_level(lvl);
+        if (lerr != ESP_OK) {
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                                esp_err_to_name(lerr));
+            return ESP_FAIL;
+        }
     }
 
     // Pins are optional in the body; absent means "leave them alone".

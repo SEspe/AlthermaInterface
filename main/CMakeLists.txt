@@ -9,10 +9,12 @@ idf_component_register(
         "wifi.c"               # <- src/main.cpp    (setup_wifi/checkWifi)
         "mqtt.c"               # <- include/mqtt.h + mqttserial.h (-> esp-mqtt)
         "settings.c"           # <- src/setup.h     (compile-time -> NVS)
+        "power.c"              # new: CPU/WiFi power profiles (5 V rail load)
         "web_server.c"         # new: config UI, WiFi diag, values, OTA upload
         # "control.c"          # <- thermostat / smart grid / safety relay
     INCLUDE_DIRS "."
     REQUIRES
+        esp_pm
         esp_driver_uart
         esp_driver_gpio
         esp_wifi

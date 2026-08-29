@@ -1,7 +1,7 @@
 # FSD — AlthermaInterface
 
-**Version:** 1.8
-**Firmware:** 1.5.0
+**Version:** 1.9
+**Firmware:** 1.6.0
 **Target:** ESP32 (ESP32-WROOM devkit, 4 MB flash), ESP-IDF v6.0.1
 **Heat pump:** Daikin Altherma LT split hydrobox **EKHBH / EKHBX 008BA** —
 **protocol S**, ROTEX value mapping
@@ -11,6 +11,43 @@ is authoritative for *what the firmware must do*; `docs/PORTING.md` covers *how
 the upstream code maps onto it*.
 
 ## Changelog
+
+- v1.9 — **Configurable power profiles (firmware 1.6.0), §3.2, §10.** The board
+  is fed from the heat pump's internal 5 V regulator, which was never sized for
+  an ESP32, so the Config tab now selects how much load it puts on that rail.
+  Three cumulative levels: **0 Off** (160 MHz, 20 dBm — the behaviour of every
+  earlier release), **1 Balanced** (160 MHz, 13 dBm) and **2 Low** (80 MHz,
+  13 dBm). The names, descriptions, frequencies and transmit powers all come
+  from one table in `main/power.c`, so the web UI cannot drift out of step with
+  what the firmware does, and `/api/status` reports the running `power`,
+  `cpuMhz` and `txDbm` so a level can be verified rather than assumed.
+
+  Transmit power is the lever that matters: WiFi bursts of a few hundred
+  milliamps against a ~40 mA baseline are what stresses a small regulator, so
+  cutting 20 dBm to 13 dBm buys more than shaving idle draw does. Savings are
+  datasheet estimates, not measurements — the firmware cannot see its own supply
+  current.
+
+  **The default stays 0.** An OTA that silently reduced transmit power could put
+  a unit with a marginal link out of reach inside a heat pump enclosure,
+  recoverable only over serial or SoftAP, so raising it is an explicit choice
+  and the UI says to do it one step at a time.
+
+  The UI also says what to watch, because the obvious answer is wrong: **RSSI
+  cannot show the effect of reducing transmit power**, being the signal arriving
+  *from* the access point. The counters that do move are `disconnects`,
+  `connects` and `pubFail`. RSSI remains useful *beforehand* as a measure of
+  margin, since path loss is roughly symmetric.
+
+  `CONFIG_PM_ENABLE` is now set, since `esp_pm_configure()` is the only
+  supported way to change CPU frequency at runtime. Every profile sets
+  `min_freq == max_freq`, so **no dynamic scaling actually occurs**: 80, 160 and
+  240 MHz are all PLL-derived and leave APB at 80 MHz, which is what keeps the
+  X10A UART's 9600 8E1 divisor correct. Automatic light sleep — the largest
+  saving available — is deliberately **not** included: it would drop APB to the
+  XTAL frequency and requires moving the UART to `UART_SCLK_REF_TICK` plus a
+  power-management lock held across each query, which touches the field-proven
+  serial path and needs its own verification against the real heat pump.
 
 - v1.8 — **`0x53` offset 3 confirmed as the electric heater contactor
   (firmware 1.5.0), §6.** The bit upstream labels `External heater?` — with its

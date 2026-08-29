@@ -82,3 +82,29 @@ const char *alt_settings_check_pins(int rx, int tx);
 // Persists the pin map. Validates first and returns ESP_ERR_INVALID_ARG if
 // alt_settings_check_pins() rejects the pair.
 esp_err_t alt_settings_set_pins(int rx, int tx);
+
+// ---- Power profile ------------------------------------------------------
+// Which alt_power_level_t the board runs at, to limit the load it puts on the
+// heat pump's internal 5 V regulator. Defaults to 0 (Off), the behaviour of
+// every release before 1.6.0: raising it is an explicit choice, because
+// reducing WiFi transmit power on a unit with a marginal link could put it out
+// of reach inside a heat pump enclosure.
+
+int alt_settings_power_level(void);
+esp_err_t alt_settings_set_power_level(int level);
+
+// ---- Poll / publish interval -------------------------------------------
+// How often the heat pump is read and the values published. Each publish is a
+// WiFi transmit burst, which is the load the heat pump's 5 V regulator feels,
+// so this is a power lever as much as a data-resolution one: halving the rate
+// halves the bursts. Allowed values are a doubling series; anything else is
+// rejected rather than silently rounded.
+
+#define ALT_POLL_DEFAULT_S 60
+
+int alt_settings_poll_interval_s(void);
+esp_err_t alt_settings_set_poll_interval_s(int seconds);
+
+// The permitted values, so the web UI offers exactly what the firmware accepts.
+int alt_settings_poll_option_count(void);
+int alt_settings_poll_option_at(int i);

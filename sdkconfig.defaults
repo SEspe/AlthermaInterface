@@ -43,3 +43,15 @@ CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
 # callback returns a fatal error with NO cert-verify flag set, which surfaces as
 # a bare connect failure and reads exactly like a network problem. Costs ~700 B.
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_CROSS_SIGNED_VERIFY=y
+
+# Power management, for the configurable power profiles (FSD section 3.2). The
+# board is fed from the heat pump's internal 5 V regulator, which was never
+# sized for an ESP32, so the CPU frequency is selectable at runtime.
+#
+# esp_pm_configure() is the only supported way to change CPU frequency at
+# runtime, and it needs this symbol. The profiles always set min_freq == max_freq
+# so no dynamic scaling actually occurs: 80, 160 and 240 MHz are all PLL-derived
+# and leave APB at 80 MHz, which is what keeps the X10A UART's 9600 8E1 baud
+# divisor correct. A future profile that scales below 80 MHz would drop APB to
+# the XTAL frequency and MUST move the UART to UART_SCLK_REF_TICK first.
+CONFIG_PM_ENABLE=y
