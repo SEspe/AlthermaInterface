@@ -1,7 +1,7 @@
 # FSD — AlthermaInterface
 
-**Version:** 1.3
-**Firmware:** 1.1.1
+**Version:** 1.4
+**Firmware:** 1.2.0
 **Target:** ESP32 (ESP32-WROOM devkit, 4 MB flash), ESP-IDF v6.0.1
 **Heat pump:** Daikin Altherma LT split hydrobox **EKHBH / EKHBX 008BA** —
 **protocol S**, ROTEX value mapping
@@ -11,6 +11,18 @@ is authoritative for *what the firmware must do*; `docs/PORTING.md` covers *how
 the upstream code maps onto it*.
 
 ## Changelog
+
+- v1.4 — **Reading / Corresponds to / Factor as columns; estimates for the
+  unidentified channels (firmware 1.2.0), §6, §10.** The Daikin Data table gains
+  three columns instead of an annotation crammed into one cell.
+  The two unidentified `0x5A` channels now get an **estimated** temperature,
+  interpolated between the channels whose sensor is known and marked `~n °C est.`
+  so it cannot be mistaken for a reading. Two rules keep the estimate honest:
+  it **never extrapolates** — a count outside the basis range shows blank rather
+  than a fabricated number — and the **DHW tank is excluded from the basis**,
+  because its count rises with temperature while every other channel's falls, so
+  it is a different sensor characteristic and mixing it in would produce
+  nonsense.
 
 - v1.3 — **ADC channels show the temperature they correspond to (firmware
   1.1.1), §6, §10.** Each identified `0x5A` channel now displays the matching
