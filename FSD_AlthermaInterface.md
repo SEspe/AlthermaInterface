@@ -1,7 +1,7 @@
 # FSD — AlthermaInterface
 
-**Version:** 1.5
-**Firmware:** 1.3.0
+**Version:** 1.6
+**Firmware:** 1.3.2
 **Target:** ESP32 (ESP32-WROOM devkit, 4 MB flash), ESP-IDF v6.0.1
 **Heat pump:** Daikin Altherma LT split hydrobox **EKHBH / EKHBX 008BA** —
 **protocol S**, ROTEX value mapping
@@ -11,6 +11,21 @@ is authoritative for *what the firmware must do*; `docs/PORTING.md` covers *how
 the upstream code maps onto it*.
 
 ## Changelog
+
+- v1.6 — **Strapping-pin guidance in the Config tab (firmware 1.3.1), §3.1.**
+  The RX field is now marked *avoid strapping pins for safe boot*, and the hint
+  explains the part that is not obvious from the word: **what matters is which
+  side drives the pin.** TX is safe on a strapping pin because the device drives
+  it and an idle UART line sits high — which is why GPIO15 is the default TX. RX
+  is the risk, because the heat pump drives it and its level during a reset is
+  outside our control. GPIO12 is called out separately: held high at reset it
+  selects 1.8 V flash and a 3.3 V board will not boot at all, so its dropdown
+  entry reads `strapping - avoid`.
+  Refined: at reset the ESP32 drives nothing, since every GPIO is high-impedance
+  until firmware configures the UART. A TX pin is safe because MTDO has an
+  internal pull-up and the far end is a high-impedance receiver input, not
+  because the device is driving it. The general rule is to avoid a strapping pin
+  wherever something external could impose a level while the chip boots.
 
 - v1.5 — **`0x5A` offset 12 identified as an unconnected input (firmware
   1.3.0), §6.** Three hypotheses tested against the overnight capture and all
