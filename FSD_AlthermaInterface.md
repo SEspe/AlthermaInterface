@@ -1,7 +1,7 @@
 # FSD — AlthermaInterface
 
-**Version:** 1.13
-**Firmware:** 1.7.0
+**Version:** 1.14
+**Firmware:** 1.7.1
 **Target:** ESP32 (ESP32-WROOM devkit, 4 MB flash), ESP-IDF v6.0.1
 **Heat pump:** Daikin Altherma LT split hydrobox **EKHBH / EKHBX 008BA** —
 **protocol S**, ROTEX value mapping
@@ -11,6 +11,30 @@ is authoritative for *what the firmware must do*; `docs/PORTING.md` covers *how
 the upstream code maps onto it*.
 
 ## Changelog
+
+- v1.14 — **One version number, from one place (firmware 1.7.1), §9, §10.**
+  The web installer reported **1.6.3** for a build the device itself reported as
+  **1.7.0**. Both were reading real values — just different ones.
+
+  An ESP-IDF image carries a version in its **app descriptor**, which is what
+  esp-web-tools and the boot banner read. Left alone, `PROJECT_VER` comes from
+  `git describe`, which answers differently depending on where and when the build
+  happened: `v1.6.3-2-ge805d10` on a machine whose newest tag is older than the
+  code, a bare commit hash in CI (the checkout is shallow and carries no tags),
+  and something else again once a tag is pushed. Meanwhile `/api/status` reports
+  `FIRMWARE_VERSION` from `main/version.h`. The two had never matched; nothing
+  had made it visible until the web installer put a stale number in front of
+  someone.
+
+  The top-level `CMakeLists.txt` now parses `FIRMWARE_VERSION` out of
+  `main/version.h` and sets `PROJECT_VER` from it, before `project()`. The
+  descriptor, the boot banner, the web installer and `/api/status` all report the
+  same string, and none of them depend on tags, checkout depth, or whether a
+  build happened before or after a release was cut. A missing or unreadable
+  `FIRMWARE_VERSION` is a hard CMake error rather than a silent fallback.
+
+  `main/version.h` was already the single source of truth by the release
+  contract; now the build honours it.
 
 - v1.13 — **Never sleep the radio without a lease (firmware 1.7.0), §4,
   §3.2.** A newly provisioned board never got a DHCP address, while every other
