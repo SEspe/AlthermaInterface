@@ -1,7 +1,7 @@
 # FSD — AlthermaInterface
 
-**Version:** 1.6
-**Firmware:** 1.3.2
+**Version:** 1.7
+**Firmware:** 1.4.0
 **Target:** ESP32 (ESP32-WROOM devkit, 4 MB flash), ESP-IDF v6.0.1
 **Heat pump:** Daikin Altherma LT split hydrobox **EKHBH / EKHBX 008BA** —
 **protocol S**, ROTEX value mapping
@@ -11,6 +11,13 @@ is authoritative for *what the firmware must do*; `docs/PORTING.md` covers *how
 the upstream code maps onto it*.
 
 ## Changelog
+
+- v1.7 — **Repository links in the OTA tab (firmware 1.4.0), §10.** The OTA tab
+  links to the configured GitHub repository and to its releases page, so the
+  source and the changelog are one click from the device. The links are built
+  from the configured `owner/name` rather than hard-coded, so a fork points at
+  its own project, and they degrade to "(none configured)" when no repository is
+  set.
 
 - v1.6 — **Strapping-pin guidance in the Config tab (firmware 1.3.1), §3.1.**
   The RX field is now marked *avoid strapping pins for safe boot*, and the hint
