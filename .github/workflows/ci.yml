@@ -36,15 +36,21 @@ jobs:
             exit 1; }
           echo "OK: secrets.h untracked, template present"
 
-      - name: No local-only working documents
+      - name: Only the intended documents are published
         run: |
-          for f in CLAUDE.md SESSION_NOTES.md; do
-            if git ls-files --error-unmatch "$f" 2>/dev/null; then
-              echo "::error file=$f::local working document, must not be published"
-              exit 1
-            fi
+          # An allow-list rather than a deny-list: working notes kept beside the
+          # source stay local, and naming them here would publish the very thing
+          # the check exists to keep private. Anything unexpected fails, so a new
+          # document has to be added deliberately.
+          fail=0
+          for f in $(git ls-files '*.md'); do
+            case "$f" in
+              README.md|FSD_AlthermaInterface.md|docs/*.md) ;;
+              *) echo "::error file=$f::not in the published document set - if this is a local working note it should not be tracked"
+                 fail=1 ;;
+            esac
           done
-          echo "OK: local documents not tracked"
+          exit $fail
 
       - name: Firmware version matches the FSD
         run: |
