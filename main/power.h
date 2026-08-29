@@ -52,6 +52,23 @@ int alt_power_cpu_mhz(int level);
 // Maximum WiFi transmit power in units of 0.25 dBm, as esp_wifi takes it.
 int alt_power_tx_quarter_dbm(int level);
 
+// WiFi power-save mode for a level, as a wifi_ps_type_t. Level 0 is
+// WIFI_PS_NONE: modem sleep is a behaviour change, so "Off" must mean off.
+int alt_power_wifi_ps(int level);
+
+// Applies the level's power-save mode. Called only while the station HOLDS an
+// IP - see the invariant on alt_power_ps_off().
+esp_err_t alt_power_apply_ps(int level);
+
+// Forces modem sleep off, whatever the configured level.
+//
+// THE INVARIANT: power save may only ever be enabled while the station holds an
+// IP address. Any state without one - associating, waiting for a lease, a lease
+// that expired, a disconnect - must run with the radio awake, because a DHCP
+// OFFER or ACK arriving during a sleep window is missed, and a device that
+// cannot renew or re-acquire a lease has no way back on its own.
+esp_err_t alt_power_ps_off(void);
+
 // Applies the CPU part of a level. Safe before WiFi is up.
 esp_err_t alt_power_apply_cpu(int level);
 

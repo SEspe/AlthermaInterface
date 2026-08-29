@@ -19,27 +19,28 @@ struct level_def {
     const char *detail;
     int cpu_mhz;
     int tx_quarter_dbm;
+    wifi_ps_type_t ps;
 };
 
 static const struct level_def s_levels[ALT_POWER_LEVEL_COUNT] = {
     [ALT_POWER_OFF] = {
         "Off",
-        "160 MHz, full transmit power. The behaviour of every release before "
-        "1.6.0, and the safest choice on a weak WiFi link.",
-        160, TX_FULL_QUARTER_DBM,
+        "160 MHz, full transmit power, no modem sleep. The safest choice on a "
+        "weak link, and the most responsive web UI.",
+        160, TX_FULL_QUARTER_DBM, WIFI_PS_NONE,
     },
     [ALT_POWER_BALANCED] = {
         "Balanced",
-        "160 MHz, transmit power 13 dBm instead of 20. Cuts the transmit "
-        "current bursts, which is what a small regulator actually feels.",
-        160, TX_CUT_QUARTER_DBM,
+        "160 MHz, transmit power 13 dBm instead of 20, modem sleep on. Cuts the "
+        "transmit current bursts, which is what a small regulator feels.",
+        160, TX_CUT_QUARTER_DBM, WIFI_PS_MIN_MODEM,
     },
     [ALT_POWER_LOW] = {
         "Low",
-        "80 MHz and transmit power 13 dBm. The heat pump link is 9600 baud and "
-        "is polled every 30 s, so half the clock is still far more than this "
-        "firmware needs.",
-        80, TX_CUT_QUARTER_DBM,
+        "80 MHz, transmit power 13 dBm, modem sleep on. The heat pump link is "
+        "9600 baud and polled once a minute, so half the clock is still far "
+        "more than this firmware needs.",
+        80, TX_CUT_QUARTER_DBM, WIFI_PS_MIN_MODEM,
     },
 };
 
@@ -98,6 +99,48 @@ esp_err_t alt_power_apply_cpu(int level)
     return ESP_OK;
 }
 
+int alt_power_wifi_ps(int level)
+{
+    return alt_power_level_valid(level) ? (int)s_levels[level].ps
+                                        : (int)s_levels[ALT_POWER_OFF].ps;
+}
+
+// Applied only once the station has an address. Modem sleep parks the radio
+// between DTIM beacons, and a DHCP OFFER or ACK arriving in that window can be
+// missed - which depends entirely on how the access point buffers frames, so it
+// works on one network and fails on the next. The sibling BirdBox project
+// disables power save outright for the same reason ("modem-sleep latency ruins
+// HTTP"). Associating and leasing at full power costs a few hundred
+// milliseconds once per boot and removes the failure completely.
+esp_err_t alt_power_ps_off(void)
+{
+    wifi_ps_type_t cur = WIFI_PS_NONE;
+    // Only log a transition; this is called on every disconnect and would
+    // otherwise be noise on a flapping link.
+    if (esp_wifi_get_ps(&cur) == ESP_OK && cur == WIFI_PS_NONE) {
+        return ESP_OK;
+    }
+    esp_err_t err = esp_wifi_set_ps(WIFI_PS_NONE);
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "modem sleep off (no IP held)");
+    }
+    return err;
+}
+
+esp_err_t alt_power_apply_ps(int level)
+{
+    wifi_ps_type_t ps = (wifi_ps_type_t)alt_power_wifi_ps(level);
+    esp_err_t err = esp_wifi_set_ps(ps);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "set_ps failed: %s", esp_err_to_name(err));
+        return err;
+    }
+    ESP_LOGI(TAG, "level %d (%s): modem sleep %s",
+             level, alt_power_level_name(level),
+             ps == WIFI_PS_NONE ? "off" : "on");
+    return ESP_OK;
+}
+
 esp_err_t alt_power_apply_wifi(int level)
 {
     if (!alt_power_level_valid(level)) {
@@ -105,12 +148,13 @@ esp_err_t alt_power_apply_wifi(int level)
     }
     const int q = alt_power_tx_quarter_dbm(level);
 
-    // Modem sleep between DTIM beacons. This is already the esp_wifi default,
-    // but it is set explicitly so the level is what decides, not the default of
-    // whichever IDF version this was built against.
-    esp_err_t err = esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+    // Power save is deliberately OFF here regardless of level: the station has
+    // not associated or leased an address yet, and modem sleep during the DHCP
+    // handshake is what made this unit look like it was being refused a lease.
+    // The level's real setting is applied from the got-IP handler instead.
+    esp_err_t err = esp_wifi_set_ps(WIFI_PS_NONE);
     if (err != ESP_OK) {
-        ESP_LOGW(TAG, "set_ps failed: %s", esp_err_to_name(err));
+        ESP_LOGW(TAG, "set_ps(NONE) failed: %s", esp_err_to_name(err));
     }
 
     err = esp_wifi_set_max_tx_power((int8_t)q);
@@ -125,8 +169,11 @@ esp_err_t alt_power_apply_wifi(int level)
     // are not always the same number.
     int8_t got = 0;
     if (esp_wifi_get_max_tx_power(&got) == ESP_OK) {
-        ESP_LOGI(TAG, "level %d (%s): tx power %.2f dBm, modem sleep on",
-                 level, alt_power_level_name(level), got / 4.0);
+        // Power save deliberately not mentioned here: at this point it is always
+        // off, whatever the level. The level's setting is logged by
+        // alt_power_apply_ps() once a lease actually exists.
+        ESP_LOGI(TAG, "level %d (%s): tx power %.2f dBm requested %.2f",
+                 level, alt_power_level_name(level), got / 4.0, q / 4.0);
     }
     return ESP_OK;
 }

@@ -1,7 +1,7 @@
 # FSD — AlthermaInterface
 
-**Version:** 1.12
-**Firmware:** 1.6.3
+**Version:** 1.13
+**Firmware:** 1.7.0
 **Target:** ESP32 (ESP32-WROOM devkit, 4 MB flash), ESP-IDF v6.0.1
 **Heat pump:** Daikin Altherma LT split hydrobox **EKHBH / EKHBX 008BA** —
 **protocol S**, ROTEX value mapping
@@ -11,6 +11,53 @@ is authoritative for *what the firmware must do*; `docs/PORTING.md` covers *how
 the upstream code maps onto it*.
 
 ## Changelog
+
+- v1.13 — **DHCP works: modem sleep was eating the lease (firmware 1.7.0),
+  §4, §3.2.** A newly provisioned board never got an address, while every other
+  device on the same network leased normally. The long-standing explanation in
+  this project — *"the AP associates the board but never answers its DHCP
+  DISCOVER"* — was **wrong**, and the static IP on the reference unit was
+  compensating for a bug on our side.
+
+  Comparing against the sibling BirdBox project found it: BirdBox sets
+  `WIFI_PS_NONE` explicitly, its header recording the reason as a *"v1.32
+  lesson: modem-sleep latency ruins HTTP"*. AlthermaInterface ran
+  `WIFI_PS_MIN_MODEM` — the IDF default, and from 1.6.0 set explicitly at every
+  level. Modem sleep parks the radio between DTIM beacons, and a DHCP `OFFER` or
+  `ACK` arriving in that window is missed. Whether it happens at all depends on
+  how the access point buffers frames, which is why it fails here and not on
+  other networks. The "restart the DHCP client" retry already in `wifi.c` was a
+  workaround someone had built around the real cause.
+
+  The fix is stated as an invariant rather than a startup special case, because
+  a startup-only fix leaves a trap: a unit that leases an address, enables modem
+  sleep, then **misses a lease renewal** at T1 loses its IP and retries the
+  DISCOVER with modem sleep still on — the very thing that loses the reply. It
+  would sit associated and address-less indefinitely, and the existing retry
+  logic could never escape, because the cause is still enabled.
+
+  **Modem sleep may only ever be on while the station holds an IP.** Enforced at
+  every transition:
+
+  | Event | Action |
+  |---|---|
+  | `STA_CONNECTED` (associated, not yet leased) | power save off |
+  | `STA_GOT_IP` | apply the configured level |
+  | `STA_LOST_IP` (lease expired or released) | power save off |
+  | `STA_DISCONNECTED` | power save off |
+  | stall watchdog, associated with no IP | power save off |
+
+  `IP_EVENT_STA_LOST_IP` is newly registered; only `GOT_IP` was handled before.
+  `alt_power_ps_off()` checks the current mode first and logs only on a real
+  transition, so a flapping link does not fill the log.
+
+  **Level 0 "Off" now means `WIFI_PS_NONE`.** It previously set
+  `WIFI_PS_MIN_MODEM`, so a profile named "Off" was still parking the radio.
+  Levels 1 and 2 keep modem sleep, which is part of what they buy — but only
+  ever while a lease is held.
+
+  Side effect worth having: at level 0 the web UI loses the DTIM-interval
+  latency modem sleep adds to every HTTP exchange.
 
 - v1.12 — **Fix: a board flashed from a public release could never finish
   booting (firmware 1.6.3), §4, §6, §10.** Found by flashing the second board and

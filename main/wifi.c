@@ -29,6 +29,7 @@
 #include "freertos/task.h"
 #include "nvs_flash.h"
 
+#include "power.h"
 #include "settings.h"
 
 static const char *TAG = "wifi";
@@ -89,6 +90,10 @@ static void retry_timer_cb(void *arg)
         }
         ESP_LOGW(TAG, "associated but no IP after %lld ms (dhcpc status %d)", down_for, (int)st);
 
+        // Whatever else is wrong, do not let the radio sleep while there is no
+        // lease to sleep on.
+        alt_power_ps_off();
+
         if (netif && !s_dhcp_kicked && down_for >= WIFI_DHCP_KICK_AFTER_MS) {
             s_dhcp_kicked = true;
             ESP_LOGW(TAG, "restarting DHCP client");
@@ -115,6 +120,9 @@ static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *da
 
     case WIFI_EVENT_STA_CONNECTED:
         s_associated = true;
+        // Associated but not yet leased: the radio must stay awake or the DHCP
+        // reply can land in a sleep window and be lost.
+        alt_power_ps_off();
         ESP_LOGI(TAG, "associated, waiting for DHCP");
         break;
 
@@ -125,6 +133,9 @@ static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *da
             s_down_since_ms = now_ms();
         }
         xEventGroupClearBits(s_wifi_events, WIFI_CONNECTED_BIT);
+        // The IP is gone with the association; re-acquiring one needs the radio
+        // awake.
+        alt_power_ps_off();
         ESP_LOGW(TAG, "disconnected (reason %d), reconnecting", e ? e->reason : -1);
         esp_wifi_connect();
         break;
@@ -140,6 +151,18 @@ static void on_ip_event(void *arg, esp_event_base_t base, int32_t id, void *data
     (void)arg;
     (void)base;
 
+    if (id == IP_EVENT_STA_LOST_IP) {
+        // The lease expired or was released while we stayed associated. Without
+        // this the renewal would be retried with modem sleep still on - the very
+        // thing that loses the reply - and the unit could never recover.
+        xEventGroupClearBits(s_wifi_events, WIFI_CONNECTED_BIT);
+        if (s_down_since_ms == 0) {
+            s_down_since_ms = now_ms();
+        }
+        alt_power_ps_off();
+        ESP_LOGW(TAG, "lost IP; modem sleep off until a new lease arrives");
+        return;
+    }
     if (id != IP_EVENT_STA_GOT_IP) {
         return;
     }
@@ -149,6 +172,10 @@ static void on_ip_event(void *arg, esp_event_base_t base, int32_t id, void *data
     xEventGroupSetBits(s_wifi_events, WIFI_CONNECTED_BIT);
     ESP_LOGI(TAG, "connected to \"%s\", IP " IPSTR ", RSSI %d dBm",
              alt_settings_wifi_ssid(), IP2STR(&e->ip_info.ip), alt_wifi_rssi());
+
+    // Only now is it safe to park the radio. Association and the DHCP handshake
+    // run with power save off; see alt_power_apply_ps().
+    alt_power_apply_ps(alt_settings_power_level());
 }
 
 esp_err_t alt_wifi_start(void)
@@ -201,9 +228,13 @@ esp_err_t alt_wifi_start(void)
     }
 
     if (alt_settings_ip_static()) {
-        // Worth having: a router that associates a client but never answers its
-        // DHCP DISCOVER leaves the device unreachable with nothing wrong on
-        // this side - which is exactly what this unit's AP does.
+        // Worth having for a router that genuinely will not lease - but note
+        // that this unit's original "the AP never answers our DHCP DISCOVER"
+        // diagnosis was WRONG. The lease was being missed because WiFi modem
+        // sleep parked the radio during the handshake; every other device on
+        // that network leased fine. Fixed in firmware 1.7.0 by associating with
+        // power save off. Prefer DHCP unless the network really needs a fixed
+        // address.
         esp_netif_ip_info_t ip = {0};
         ip.ip.addr      = esp_ip4addr_aton(alt_settings_ip_addr());
         ip.gw.addr      = esp_ip4addr_aton(alt_settings_ip_gw());
@@ -231,6 +262,8 @@ esp_err_t alt_wifi_start(void)
         WIFI_EVENT, ESP_EVENT_ANY_ID, &on_wifi_event, NULL, NULL));
     ESP_ERROR_CHECK(esp_event_handler_instance_register(
         IP_EVENT, IP_EVENT_STA_GOT_IP, &on_ip_event, NULL, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(
+        IP_EVENT, IP_EVENT_STA_LOST_IP, &on_ip_event, NULL, NULL));
 
     wifi_config_t cfg = {0};
     strlcpy((char *)cfg.sta.ssid, alt_settings_wifi_ssid(), sizeof(cfg.sta.ssid));
