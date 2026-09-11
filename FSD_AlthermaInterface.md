@@ -1,7 +1,7 @@
 # FSD — AlthermaInterface
 
-**Version:** 1.15
-**Firmware:** 1.8.0
+**Version:** 1.16
+**Firmware:** 1.9.0
 **Target:** ESP32 (ESP32-WROOM devkit, 4 MB flash), ESP-IDF v6.0.1
 **Heat pump:** Daikin Altherma LT split hydrobox **EKHBH / EKHBX 008BA** —
 **protocol S**, ROTEX value mapping
@@ -11,6 +11,45 @@ is authoritative for *what the firmware must do*; `docs/PORTING.md` covers *how
 the upstream code maps onto it*.
 
 ## Changelog
+
+- v1.16 — **Derive compressor state and publish it (firmware 1.9.0), §6, §7.**
+  The machine reports no compressor field — five registries answer, and `0x53`
+  has never shown a non-zero byte outside offsets 0, 3 and 5 — so the one thing
+  a heat pump owner most wants to know was the one thing missing from Home
+  Assistant. It turns out to be sitting in plain sight in the water
+  temperatures.
+
+  With the circulation pump running, `outlet − inlet` is sharply **bimodal**
+  across every capture in `captures/`: **0.1–0.9 K** with the compressor idle
+  against **3–7 K** with it running, and only 8 of 426 pump-on samples land
+  anywhere between 1 and 3 K — all of them mid-transition. The refrigerant
+  liquid side confirms it independently (5–6 K below inlet when idle, level
+  with it when running) and was deliberately **left out of the rule**: it lags
+  minutes behind a stop and spans −4.6 to +1.7 K during genuine operation, so
+  ANDing it in would only add false negatives.
+
+  **Confirmed against an observed start.** While this was being written the
+  owner reported the compressor had just cut in; the `0x53` reply at that
+  moment was byte-identical to the idle-with-pump frame, CRC valid, while the
+  water delta stood at 4.77 K and the refrigerant liquid side climbed 5.7 K in
+  90 s. That converts "no compressor bit" from an argument out of absence into
+  a direct test — see `docs/REGISTER_0x53.md`.
+
+  New `main/derived.c` evaluates it once per poll cycle, between reading and
+  publishing, with 2.0 K on / 1.2 K off hysteresis and the pump as a gate — no
+  flow means the delta measures nothing, and a stagnant circuit has shown 9.9 K
+  while the machine wound down. It appears as `binary_sensor` `Compressor`
+  (device class `running`) in Home Assistant discovery, as `"Compressor"` in
+  the `ATTR` payload, and as a `calc` row in `/api/values` and the Daikin Data
+  tab. While it cannot be determined it is omitted rather than guessed.
+
+  Inputs are located by **registry and offset, not by label**, with the label
+  checked once as a guard so that a different definition file disables the
+  sensor loudly instead of quietly reinterpreting `0x54` offset 2 as an indoor
+  heat exchanger. Two limits stated in §6 and not papered over: a
+  space-heating backup heater would read as `ON`, and a 60 s poll can miss a
+  short cycle outright — one such cycle was watched starting and stopping
+  between two polls while this was being written.
 
 - v1.15 — **Identify `0x5A` offset 8: a buffered water-circuit sensor
   (firmware 1.8.0), §6, §7.** The last unidentified live channel on the
@@ -631,6 +670,48 @@ better base. Decide empirically in phase 2, not from the model number.
 
 Refrigerant type (R410A/R32/R22) selects the pressure→temperature curve;
 EKHBH/EKHBX 008BA is **R410A**.
+
+### Derived values
+
+State the machine determines but does not report. `main/derived.c` computes
+these once per poll cycle, between reading the registries and publishing, so
+the web UI and MQTT always show one evaluation rather than two made moments
+apart. A derived value carries no registry — `/api/values` marks it `calc` —
+and is omitted entirely while it cannot be determined, exactly as an unread
+label is.
+
+**`Compressor`** — `ON` when the circulation pump is running *and* outlet water
+is at least 2.0 K above inlet water; `OFF` below 1.2 K (hysteresis), and `OFF`
+whenever the pump is stopped. There is no compressor field to read: the 256-ID
+scan found five registries that answer, and `0x53`'s only non-zero offsets in
+any capture are 0, 3 and 5. The plain `PROTOCOL_S.h` map does carry
+`INV Comp. Frequency`, but that mapping was rejected against real bytes — those
+fields belong to an outdoor-unit PCB this service port does not reach.
+
+The rule rests on three captures in `captures/` — a forced DHW cycle, an
+overnight run and a space-heating run. With the pump circulating, the water
+delta is sharply **bimodal**: 0.1–0.9 K with the compressor idle, 3–7 K with it
+running, and 8 of 426 pump-on samples anywhere between 1 and 3 K, all of them
+mid-transition. The refrigerant liquid side agrees independently — about 5–6 K
+below inlet water when idle, level with it when running — but is **not** used
+in the rule: it lags by minutes after a stop, and its spread during genuine
+compressor operation (−4.6 to +1.7 K against inlet) would produce false
+negatives if it were ANDed in. The delta responds immediately.
+
+Two limits are inherent. A **space-heating backup heater**, if this unit has one
+and if it reports on `0x53` offset 3, would raise the delta with no compressor
+running and read as `ON`; the offset-3 element observed so far heats the DHW
+tank with no circulation at all, which this rule cannot see and does not claim
+to. And at a 60 s poll interval a **short cycle can be missed entirely** — the
+same resolution caveat that makes these captures unsuitable for duty-cycle or
+runtime totals.
+
+The inputs are located by registry and payload offset, not by label — labels are
+user-facing text and keying on them is the trap `docs/REGISTER_0x53.md`
+describes. Because offsets alone would silently mean something else under a
+different definition file, each label is checked once as a **guard**: a mismatch
+disables the sensor with an error in the log rather than publishing a confident
+lie.
 
 ## 7. MQTT
 

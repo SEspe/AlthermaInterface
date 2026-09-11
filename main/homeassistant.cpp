@@ -29,6 +29,7 @@
 #include "esp_log.h"
 
 #include "converters.h"
+#include "derived.h"
 #include "version.h"
 
 static const char *TAG = "ha";
@@ -45,13 +46,14 @@ static const char *kDiscoveryStart =
 static const char *kDiscoveryEnd =
     "},\"stat_t\":\"espaltherma/ATTR\",\"qos\": 2}";
 
-// dataType values for the two synthetic entries mqtt.c appends to every ATTR
+// dataType values for the synthetic entries mqtt.c appends to every ATTR
 // payload. They have no registry and no converter.
 #define ESP_SENSOR_WIFI_RSSI 998
 #define ESP_SENSOR_FREE_MEM  997
 #define ESP_SENSOR_MIN_MEM   996
 #define ESP_SENSOR_MAX_BLOCK 995
 #define ESP_SENSOR_UPTIME    994
+#define ESP_SENSOR_COMPRESSOR 993
 
 // No die temperature among these: the ESP32 classic has no supported internal
 // temperature sensor. The undocumented ROM temprature_sens_read() exists but is
@@ -88,6 +90,10 @@ static std::string getSensorDeviceAndUnit(const char *label, int convid, int dat
         return "\"p\":\"sensor\",\"dev_cla\":\"data_size\",\"unit_of_meas\":\"B\",";
     case ESP_SENSOR_UPTIME:
         return "\"p\":\"sensor\",\"dev_cla\":\"duration\",\"unit_of_meas\":\"s\",";
+    case ESP_SENSOR_COMPRESSOR:
+        // "ON"/"OFF" are Home Assistant's default payload_on / payload_off, so
+        // this needs no payload mapping - the same as the convid 200 bits.
+        return "\"p\":\"binary_sensor\",\"dev_cla\":\"running\",";
     case 1:
         return "\"p\":\"sensor\",\"dev_cla\":\"temperature\",\"unit_of_meas\":\"\xC2\xB0" "C\",";
     case 2:
@@ -186,6 +192,7 @@ extern "C" const char *alt_ha_discovery_payload(size_t *len)
     payload += kDiscoveryStart;
 
     bool first = true;
+    size_t emitted = 0;
     auto append = [&](const std::string &s) {
         if (s.empty()) {
             return;
@@ -195,6 +202,7 @@ extern "C" const char *alt_ha_discovery_payload(size_t *len)
         }
         payload += s;
         first = false;
+        emitted++;
     };
 
     append(makeSensorJson("WifiRSSI", -1, ESP_SENSOR_WIFI_RSSI, true));
@@ -206,7 +214,11 @@ extern "C" const char *alt_ha_discovery_payload(size_t *len)
     append(makeSensorJson("MaxFreeBlock", -1, ESP_SENSOR_MAX_BLOCK, true));
     append(makeSensorJson("Uptime", -1, ESP_SENSOR_UPTIME, true));
 
-    size_t emitted = 2;
+    // Not a reading and not a diagnostic: compressor state is inferred from the
+    // water temperatures (derived.h), and it is one of the most useful things
+    // this device can say about the machine, so it belongs with the sensors.
+    append(makeSensorJson(ALT_DERIVED_COMPRESSOR_LABEL, -1, ESP_SENSOR_COMPRESSOR, false));
+
     for (size_t i = 0; i < count; i++) {
         const char *label = NULL;
         int convid = -1;
@@ -220,7 +232,6 @@ extern "C" const char *alt_ha_discovery_payload(size_t *len)
             continue;
         }
         append(s);
-        emitted++;
     }
 
     payload += kDiscoveryEnd;

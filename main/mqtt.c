@@ -22,6 +22,7 @@
 #include "mqtt_client.h"
 
 #include "converters.h"
+#include "derived.h"
 #include "homeassistant.h"
 #include "settings.h"
 #include "wifi.h"
@@ -188,6 +189,14 @@ esp_err_t alt_mqtt_publish_values(void)
             ESP_LOGE(TAG, "payload truncated at label %u", (unsigned)i);
             return ESP_ERR_NO_MEM;
         }
+    }
+
+    // Derived, not read: the machine reports no compressor field. Skipped
+    // while it cannot be determined, exactly as an unread label is.
+    const char *compressor = alt_derived_compressor();
+    if (compressor[0] != '\0') {
+        pos += snprintf(s_json + pos, ALT_JSON_MAX - pos, "\"%s\":\"%s\",",
+                        ALT_DERIVED_COMPRESSOR_LABEL, compressor);
     }
 
     pos += snprintf(s_json + pos, ALT_JSON_MAX - pos, "\"WifiRSSI\":\"%ddBm\",", alt_wifi_rssi());

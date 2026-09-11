@@ -39,6 +39,14 @@ size_t converter_label_count(void);
 // label's registry. Returns false if i is out of range.
 bool converter_label_at(size_t i, uint8_t *reg_id, const char **label, const char **value);
 
+// Current label and value at (registry, offset), located by position rather
+// than by name. Label strings are user-facing and do get renamed - renaming one
+// silently breaks anything keyed on it (docs/REGISTER_0x53.md) - while the
+// register and the offset are the physical thing. Returns false if the
+// definition file names no such label. `value` is "" until it is first read.
+bool converter_label_by_offset(uint8_t reg_id, int offset, const char **label,
+                               const char **value);
+
 // Static metadata for label i: its name, conversion id and dataType hint.
 // Home Assistant discovery needs these to pick a device class, and routing it
 // through here keeps labelDefs[] defined in exactly one translation unit - the

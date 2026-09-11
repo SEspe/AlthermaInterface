@@ -27,6 +27,7 @@
 
 #include "althermaserial.h"
 #include "converters.h"
+#include "derived.h"
 #include "mqtt.h"
 #include "esp_chip_info.h"
 #include "esp_flash.h"
@@ -577,7 +578,10 @@ static esp_err_t values_get(httpd_req_t *req)
 {
     httpd_resp_set_type(req, "application/json");
 
-    size_t total = converter_label_count();
+    const char *compressor = alt_derived_compressor();
+    const bool has_compressor = compressor[0] != '\0';
+
+    size_t total = converter_label_count() + (has_compressor ? 1 : 0);
     char chunk[256];
 
     snprintf(chunk, sizeof(chunk), "{\"total\":%u,\"values\":[", (unsigned)total);
@@ -598,6 +602,15 @@ static esp_err_t values_get(httpd_req_t *req)
                  first ? "" : ",", reg, label, value);
         httpd_resp_sendstr_chunk(req, chunk);
         first = false;
+    }
+
+    // Derived rather than read, so it carries no registry - "calc" marks it as
+    // this firmware's inference and not something the machine reported.
+    if (has_compressor) {
+        snprintf(chunk, sizeof(chunk),
+                 "%s{\"reg\":\"calc\",\"label\":\"%s\",\"value\":\"%s\"}",
+                 first ? "" : ",", ALT_DERIVED_COMPRESSOR_LABEL, compressor);
+        httpd_resp_sendstr_chunk(req, chunk);
     }
 
     httpd_resp_sendstr_chunk(req, "]}");

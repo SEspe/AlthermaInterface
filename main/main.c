@@ -21,6 +21,7 @@
 #include "althermaserial.h"
 #include "board_config.h"
 #include "converters.h"
+#include "derived.h"
 #include "mqtt.h"
 #include "power.h"
 #include "settings.h"
@@ -209,6 +210,11 @@ void app_main(void)
         int64_t start = esp_timer_get_time() / 1000;
         ESP_LOGI(TAG, "---- poll cycle ----");
         poll_once(protocol);
+        // Once per cycle, between reading and publishing, so the web UI and
+        // MQTT report one evaluation rather than two made moments apart.
+        alt_derived_update();
+        ESP_LOGI(TAG, "    %-32s %s", ALT_DERIVED_COMPRESSOR_LABEL,
+                 alt_derived_compressor()[0] ? alt_derived_compressor() : "unknown");
 
         alt_mqtt_publish_values();
 

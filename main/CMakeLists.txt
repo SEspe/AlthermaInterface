@@ -10,6 +10,7 @@ idf_component_register(
         "mqtt.c"               # <- include/mqtt.h + mqttserial.h (-> esp-mqtt)
         "settings.c"           # <- src/setup.h     (compile-time -> NVS)
         "power.c"              # new: CPU/WiFi power profiles (5 V rail load)
+        "derived.c"            # new: state inferred from the readings
         "web_server.c"         # new: config UI, WiFi diag, values, OTA upload
         # "control.c"          # <- thermostat / smart grid / safety relay
     INCLUDE_DIRS "."

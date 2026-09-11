@@ -197,6 +197,34 @@ whether that would report on the same bit. Claiming "DHW booster" would assert
 more than has been observed. What is established: **this bit can heat the tank
 with no circulation.**
 
+## CONFIRMED: there is no compressor bit
+
+On **2026-09-11**, with the owner reporting the compressor had *just started*,
+`0x53` read:
+
+```
+53 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ab
+   ^^ offset 0, circulation pump
+```
+
+Byte-identical to the idle-with-pump frame, CRC valid, only offset 0 set. `0x55`
+and `0x56` did not move either. The same reply at the same moment put outlet
+water 4.77 K above inlet (30.22 → 34.98 °C) with the refrigerant liquid side
+climbing 23.20 → 28.88 °C in about 90 s, so the machine was unambiguously
+running.
+
+Until then this was an argument from absence — twelve unmapped bytes that had
+never been seen non-zero. It is now a direct test against an *observed* start:
+the compressor is simply not reported on this register. Firmware 1.9.0 therefore
+derives it from the water temperatures instead (FSD §6).
+
+One candidate outside `0x53` was checked and excluded the same evening.
+`0x54` offset 12 (`Delta-Tr`) had stepped 34 → 36 within four minutes, which
+looked promising — but it holds a constant 32 through both the forced-DHW and
+space-heating captures, across every compressor start and stop in them. It
+drifts on a slower schedule, matching upstream's own note (`0x1b` mid-day,
+`0x24` mid-night), and is not a running-state flag.
+
 ### What does NOT indicate DHW
 
 - **`0x55` offset 0 `Operation Mode`** reads `"Heating"` continuously — through

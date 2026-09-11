@@ -616,6 +616,20 @@ bool converter_label_meta(size_t i, const char **label, int *convid, int *data_t
     return true;
 }
 
+bool converter_label_by_offset(uint8_t reg_id, int offset, const char **label,
+                               const char **value)
+{
+    for (size_t i = 0; i < kLabelCount; i++) {
+        if (labelDefs[i].registryID != (int)reg_id || labelDefs[i].offset != offset) {
+            continue;
+        }
+        if (label) *label = labelDefs[i].label;
+        if (value) *value = labelDefs[i].asString;
+        return true;
+    }
+    return false;
+}
+
 bool converter_label_at(size_t i, uint8_t *reg_id, const char **label, const char **value)
 {
     if (i >= kLabelCount) {
