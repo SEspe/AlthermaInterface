@@ -20,6 +20,7 @@
 
 #include "althermaserial.h"
 #include "board_config.h"
+#include "burst.h"
 #include "converters.h"
 #include "derived.h"
 #include "mqtt.h"
@@ -86,7 +87,10 @@ static void log_rotex_crosscheck(const uint8_t *buf, int len)
     }
 }
 
-static void poll_once(char protocol)
+// `quiet` suppresses the per-cycle logging. At the burst rate the MQTT log
+// mirror would publish tens of lines a second, which is a worse flood than the
+// values themselves and would crowd out the very cycle being measured.
+static void poll_once(char protocol, bool quiet)
 {
     for (size_t i = 0; i < s_registry_count; i++) {
         uint8_t reg_id = s_registry_ids[i];
@@ -114,6 +118,9 @@ static void poll_once(char protocol)
         }
 
         converter_read_registry(buf, protocol);
+        if (quiet) {
+            continue;
+        }
         log_labels_for(reg_id);
 
         if (protocol == 'S' && reg_id == 0x54) {
@@ -206,21 +213,55 @@ void app_main(void)
              protocol, converter_refrigerant(), (unsigned)converter_label_count(),
              (unsigned)s_registry_count, reglist);
 
+    // Arming a burst wakes this task out of its wait, so a window opens at once
+    // instead of at the next scheduled cycle.
+    alt_burst_register_waiter(xTaskGetCurrentTaskHandle());
+
+    bool was_bursting = false;
+
     while (true) {
         int64_t start = esp_timer_get_time() / 1000;
-        ESP_LOGI(TAG, "---- poll cycle ----");
-        poll_once(protocol);
+        const bool bursting = alt_burst_active();
+
+        if (!bursting) {
+            ESP_LOGI(TAG, "---- poll cycle ----");
+        }
+        poll_once(protocol, bursting);
         // Once per cycle, between reading and publishing, so the web UI and
         // MQTT report one evaluation rather than two made moments apart.
         alt_derived_update();
-        ESP_LOGI(TAG, "    %-32s %s", ALT_DERIVED_COMPRESSOR_LABEL,
-                 alt_derived_compressor()[0] ? alt_derived_compressor() : "unknown");
 
-        alt_mqtt_publish_values();
+        if (bursting) {
+            alt_burst_record();
+        } else {
+            ESP_LOGI(TAG, "    %-32s %s", ALT_DERIVED_COMPRESSOR_LABEL,
+                     alt_derived_compressor()[0] ? alt_derived_compressor() : "unknown");
+            // Publishing is skipped for the length of a burst rather than sent
+            // at the burst rate: a subscriber gains nothing from 1 Hz updates
+            // and a broker should not be flooded for a local experiment. The
+            // cycle right after the window closes carries the fresh values.
+            alt_mqtt_publish_values();
+        }
+        if (was_bursting && !bursting) {
+            ESP_LOGI(TAG, "burst finished, %u samples", (unsigned)alt_burst_count());
+        }
+        was_bursting = bursting;
 
         int64_t elapsed = (esp_timer_get_time() / 1000) - start;
-        int64_t wait = (int64_t)alt_settings_poll_interval_s() * 1000 - elapsed;
-        ESP_LOGI(TAG, "cycle took %lld ms, waiting %lld ms", elapsed, wait > 0 ? wait : 0);
-        vTaskDelay(pdMS_TO_TICKS(wait > 0 ? wait : 0));
+        // During a burst the pace is set by the link, not by a timer: a short
+        // yield keeps the watchdog fed and lets the web server answer, and the
+        // real interval is whatever a cycle costs. Each sample carries its own
+        // timestamp, so an uneven rate is recorded rather than assumed.
+        int64_t wait = bursting
+            ? 0
+            : (int64_t)alt_settings_poll_interval_s() * 1000 - elapsed;
+        if (!bursting) {
+            ESP_LOGI(TAG, "cycle took %lld ms, waiting %lld ms", elapsed, wait > 0 ? wait : 0);
+        }
+        // A notification-based wait rather than vTaskDelay: alt_burst_start()
+        // gives this task a notification, which returns from here immediately.
+        // pdTRUE clears the count on the way out, so an arm that lands while a
+        // cycle is running cannot make the NEXT wait return early too.
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(wait > 10 ? wait : 10));
     }
 }

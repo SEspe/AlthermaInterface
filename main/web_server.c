@@ -26,6 +26,7 @@
 #include "freertos/task.h"
 
 #include "althermaserial.h"
+#include "burst.h"
 #include "converters.h"
 #include "derived.h"
 #include "mqtt.h"
@@ -954,6 +955,70 @@ static esp_err_t config_post(httpd_req_t *req)
     return ESP_OK;
 }
 
+// ------------------------------------------------------- burst sampling
+//
+// POST arms a window, GET reads back what it caught. CSV rather than JSON
+// because the result is a time series that goes straight into the same
+// analysis the captures/ files get.
+//
+// Placed after json_field() rather than beside the other /api handlers, which
+// sit above its declaration.
+static esp_err_t burst_post(httpd_req_t *req)
+{
+    char body[64];
+    int len = req->content_len < (int)sizeof(body) - 1 ? req->content_len : (int)sizeof(body) - 1;
+    int seconds = 60;
+
+    if (len > 0) {
+        int got = httpd_req_recv(req, body, len);
+        if (got > 0) {
+            body[got] = 0;
+            char secs[8] = {0};
+            if (json_field(body, "seconds", secs, sizeof(secs)) && secs[0] != 0) {
+                seconds = atoi(secs);
+            }
+        }
+    }
+
+    esp_err_t err = alt_burst_start(seconds);
+    if (err == ESP_ERR_INVALID_ARG) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "seconds out of range");
+        return ESP_FAIL;
+    }
+    if (err == ESP_ERR_INVALID_STATE) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "a burst is already running");
+        return ESP_FAIL;
+    }
+
+    char msg[96];
+    snprintf(msg, sizeof(msg), "sampling for %d s", seconds);
+    httpd_resp_sendstr(req, msg);
+    return ESP_OK;
+}
+
+static esp_err_t burst_get(httpd_req_t *req)
+{
+    httpd_resp_set_type(req, "text/csv");
+
+    char line[192];
+    int n = snprintf(line, sizeof(line), "# active=%s samples=%u overflow=%s",
+                     alt_burst_active() ? "yes" : "no", (unsigned)alt_burst_count(),
+                     alt_burst_overflowed() ? "yes" : "no");
+    line[n++] = '\n';
+    line[n] = 0;
+    httpd_resp_sendstr_chunk(req, line);
+    httpd_resp_sendstr_chunk(req, alt_burst_csv_header());
+    httpd_resp_sendstr_chunk(req, "\n");
+
+    for (size_t i = 0; alt_burst_row(i, line, sizeof(line) - 2); i++) {
+        size_t end = strlen(line);
+        line[end++] = '\n';
+        line[end] = 0;
+        httpd_resp_sendstr_chunk(req, line);
+    }
+    return httpd_resp_sendstr_chunk(req, NULL);
+}
+
 // ----------------------------------------------- OTA from a GitHub release
 //
 // The browser can LIST releases — the GitHub API sends CORS `*` — but it cannot
@@ -1183,6 +1248,8 @@ esp_err_t alt_web_start(void)
         {.uri = "/api/config",  .method = HTTP_POST, .handler = config_post},
         {.uri = "/api/reboot",  .method = HTTP_POST, .handler = reboot_post},
         {.uri = "/api/internals", .method = HTTP_GET, .handler = internals_get},
+        {.uri = "/api/burst",   .method = HTTP_POST, .handler = burst_post},
+        {.uri = "/api/burst",   .method = HTTP_GET,  .handler = burst_get},
         {.uri = "/ota/upload",  .method = HTTP_POST, .handler = ota_post},
         {.uri = "/ota/from-url",.method = HTTP_POST, .handler = otau_post},
         {.uri = "/ota/from-url",.method = HTTP_GET,  .handler = otau_get},

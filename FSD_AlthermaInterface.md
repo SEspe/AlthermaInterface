@@ -1,7 +1,7 @@
 # FSD — AlthermaInterface
 
-**Version:** 1.16
-**Firmware:** 1.9.0
+**Version:** 1.17
+**Firmware:** 1.10.0
 **Target:** ESP32 (ESP32-WROOM devkit, 4 MB flash), ESP-IDF v6.0.1
 **Heat pump:** Daikin Altherma LT split hydrobox **EKHBH / EKHBX 008BA** —
 **protocol S**, ROTEX value mapping
@@ -11,6 +11,88 @@ is authoritative for *what the firmware must do*; `docs/PORTING.md` covers *how
 the upstream code maps onto it*.
 
 ## Changelog
+
+- v1.17 — **Burst sampling: a bounded window at link speed (firmware 1.10.1),
+  §6, §11.** The compressor sensor of v1.16 exposed a limit that was already
+  there and had never mattered: the fastest selectable poll interval is 30 s,
+  while this machine changes state in seconds. A compressor start and stop was
+  watched happening entirely between two 60 s polls. A rule can only be as good
+  as the sampling that checks it, and a transition that is never sampled cannot
+  be argued about.
+
+  `POST /api/burst {"seconds":"N"}` (1–300; the body parser takes quoted values
+  only, as everywhere else in this API) makes the poll loop run as fast as the
+  X10A link allows for that window, recording each cycle into a ring buffer of
+  320 samples that `GET /api/burst` returns as CSV — the same shape as the
+  files in `captures/`, so it goes straight into the same analysis. Each sample
+  carries its own millisecond timestamp: the rate is whatever a cycle costs and
+  is **recorded rather than assumed**.
+
+  Deliberately a window and not a poll-interval option. At one sample a second
+  a permanent setting would publish to MQTT every second and mirror a log line
+  per registry, flooding the broker for the sake of an occasional experiment —
+  so during a burst the per-label logging and the MQTT publish are both
+  suppressed, and the cycle after the window closes carries the fresh values. A
+  burst expires on its own, so the device cannot be left in this state by
+  forgetting about it.
+
+  **1.10.0 shipped to the device with the window unable to open, and 1.10.1
+  fixes it.** Arming a burst set a deadline but did not disturb the poll loop,
+  which was asleep in a `vTaskDelay` for the rest of its interval — so a window
+  armed just after a cycle recorded nothing until the next one, and at the
+  slowest interval (480 s) it would expire before the loop ever woke. The wait
+  is now `ulTaskNotifyTake`, and `alt_burst_start()` notifies the poll task, so
+  sampling begins within a cycle of the request. Caught in the first live test
+  rather than by reading the code: `samples=0` on a window that was plainly
+  open.
+
+  **Measured rate: about 240 ms per cycle, four samples a second** — five
+  registries over a 9600 baud link is quicker than assumed, so "1 Hz" in the
+  original design note understated it. Nothing depends on the figure, since
+  every sample is timestamped, but it does mean the 320-sample buffer holds
+  about **78 s**, not the full 300 s a window may ask for. Beyond that,
+  sampling continues and storing stops, with `overflow=yes` in the response
+  header saying so rather than quietly dropping data.
+
+  **What prompted it, and what it immediately answered.** On a setpoint drop at
+  23:12 the three 60 s samples around it read dT 5.23 → 1.78 → 0.47 K with the
+  pump running throughout, so the delta test made the call rather than the pump
+  gate. But 1.78 K sits inside the hysteresis band, so `Compressor` held `ON`
+  for one extra cycle, and 60 s resolution could not say whether the band was
+  too wide or an inverter was genuinely still ramping down.
+
+  A burst across a second, owner-announced stop settled it. 246 samples, 240 ms
+  apart:
+
+  | t (s) | dT | refrigerant | |
+  |---|---|---|---|
+  | 0–27 | 5.78–5.98, flat | 30.4, flat | running |
+  | ~28 | 5.58, falling | 30.5 | **the stop** |
+  | 39.5 | 3.0 | 30.5 | still `ON` |
+  | 45 | 2.0 | 30.3 | still `ON` |
+  | 52.1 | 1.12 | 30.3 | **reports `OFF`** |
+  | 56+ | 1.0 | 30.1, falling at last | |
+
+  **The `OFF` edge lags the physical stop by about 24 s, and the lag is thermal
+  rather than a threshold artifact.** The delta does not step when the
+  compressor stops; it decays smoothly at roughly 0.2 K/s as the warm water in
+  the exchanger flushes through. Nothing available moves faster — the
+  refrigerant liquid side held 30.4 ± 0.2 K for the entire 24 s and only began
+  to fall at t ≈ 56, another 30 s later, which vindicates keeping it out of the
+  rule by a wide margin.
+
+  It also reinterprets the 23:12 sample: at 1.78 K the compressor had already
+  been stopped for some 18 s. The hysteresis was not holding on too long, it was
+  describing a machine that had already stopped.
+
+  **The §6 thresholds are therefore kept, now for a measured reason rather than
+  caution.** Raising the off threshold to 2.5 K would cut the reported lag from
+  24 s to about 13 s while consuming most of the margin to the lowest genuine
+  running delta on record (3.0 K). At a 30–60 s poll interval both figures sit
+  below the sampling resolution, so the lag is invisible where it matters and
+  the false-`OFF` risk would be real. A rate-of-change test could catch a stop
+  sooner, but only inside a burst — at normal cadence there is one sample per
+  interval and no derivative to take.
 
 - v1.16 — **Derive compressor state and publish it (firmware 1.9.0), §6, §7.**
   The machine reports no compressor field — five registries answer, and `0x53`
