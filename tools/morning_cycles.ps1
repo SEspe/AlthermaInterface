@@ -10,6 +10,12 @@
 
 param(
     [string]$Device   = "192.168.10.40",
+    # ESPEasy node carrying DS18B20 sensors on the same system, including the
+    # OUTDOOR temperature (ute03). X10A reports nothing from the outdoor unit,
+    # so without this a changed start rate cannot be told apart from changed
+    # weather - which is the whole point of a before/after comparison.
+    # Set to "" to skip.
+    [string]$EspEasy  = "192.168.10.160",
     [int]$Minutes     = 35,
     [int]$IntervalSec = 20,
     # Defaults to captures/ beside this script's parent, so the scheduled task
@@ -28,16 +34,32 @@ $end   = (Get-Date).AddMinutes($Minutes)
 
 while ((Get-Date) -lt $end) {
     $t = Get-Date -Format "HH:mm:ss"
+
     try {
         $r = Invoke-RestMethod -Uri "http://$Device/api/values" -TimeoutSec 5
         # Compact back to JSON so the line matches what the bash loggers wrote.
         $json = $r | ConvertTo-Json -Compress -Depth 5
-        "$t|$json" | Out-File -FilePath $log -Append -Encoding utf8
     } catch {
         # A single failed poll must not end the run - the device reboots on OTA
         # and after any heat pump power cycle.
-        "$t|UNREACHABLE" | Out-File -FilePath $log -Append -Encoding utf8
+        $json = "UNREACHABLE"
     }
+
+    $esp = "{}"
+    if ($EspEasy) {
+        try {
+            $e = Invoke-RestMethod -Uri "http://$EspEasy/json" -TimeoutSec 5
+            $flat = [ordered]@{}
+            foreach ($s in $e.Sensors) {
+                foreach ($v in $s.TaskValues) { $flat[$v.Name] = $v.Value }
+            }
+            $esp = $flat | ConvertTo-Json -Compress
+        } catch {
+            $esp = "UNREACHABLE"
+        }
+    }
+
+    "$t|$json|$esp" | Out-File -FilePath $log -Append -Encoding utf8
     Start-Sleep -Seconds $IntervalSec
 }
 
