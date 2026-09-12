@@ -173,6 +173,19 @@ The cycle ran in this order, from 44.8 °C to a 53 °C setpoint in **27m27s**:
 The heater cut out at 52.98 °C, essentially exactly on setpoint. Electric heat was
 involved for 7.5 of the 27.5 minutes.
 
+**Why the booster joined at 19m57s: field setting `[8-03]` = 20 minutes.** Read
+off the controller on 2026-09-12, `[8-03]` *Booster heater delay time* —
+*"specifies the start-up time delay of the booster heater operation when heat
+pump domestic water heating mode is active"* — is set to 20 (factory default is
+50). The first phase boundary in the table above is that timer expiring,
+essentially to the second, and not a temperature or a capacity limit. The unit's
+own settings explain a boundary this capture could only observe.
+
+Note also `[8-01]` *Maximum running time* = 20 min, which the cycle exceeded:
+the manual states that with a room thermostat configured, the maximum running
+timer applies only while there is a space heating or cooling request. There was
+none, so DHW continued past it.
+
 **Do not read the tank column as an efficiency comparison.** The heat pump spent
 its first twenty minutes lifting the water circuit from 30 °C to 51 °C rather
 than the tank, and the tank sensor lags the coil badly, so temperature gain
