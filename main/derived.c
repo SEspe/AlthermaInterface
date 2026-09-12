@@ -48,8 +48,36 @@ static const char *TAG = "derived";
 #define COMP_OFF_DELTA_K  1.2
 
 static const char *s_compressor = "";
+static const char *s_compressor_num = "";
 static bool s_compressor_on;
 static bool s_guard_failed;
+
+// One decision, both published forms. Writing the two strings separately at
+// each exit would be four chances for them to drift apart, and a device that
+// reported ON on one entity and 0 on the other would be worse than one that
+// reported nothing.
+typedef enum { STATE_UNKNOWN = -1, STATE_OFF = 0, STATE_ON = 1 } comp_state_t;
+
+static void set_compressor(comp_state_t state)
+{
+    switch (state) {
+    case STATE_ON:
+        s_compressor = "ON";
+        s_compressor_num = "1";
+        s_compressor_on = true;
+        break;
+    case STATE_OFF:
+        s_compressor = "OFF";
+        s_compressor_num = "0";
+        s_compressor_on = false;
+        break;
+    default:
+        s_compressor = "";
+        s_compressor_num = "";
+        s_compressor_on = false;
+        break;
+    }
+}
 
 // Reads the label at (reg, offset), checking that its name still contains
 // `guard`. Returns NULL when the label is missing, renamed, or not yet read.
@@ -98,8 +126,7 @@ void alt_derived_update(void)
     const char *outlet = input_value(REG_TEMPS, OFF_OUTLET, GUARD_OUTLET);
 
     if (!pump || !inlet || !outlet) {
-        s_compressor = "";
-        s_compressor_on = false;
+        set_compressor(STATE_UNKNOWN);
         return;
     }
 
@@ -108,29 +135,29 @@ void alt_derived_update(void)
     // been observed running with the pump stopped, and on a hydrobox it cannot:
     // it would have no heat sink.
     if (strcmp(pump, "ON") != 0) {
-        s_compressor = "OFF";
-        s_compressor_on = false;
+        set_compressor(STATE_OFF);
         return;
     }
 
     double in = 0.0, out = 0.0;
     if (!parse_number(inlet, &in) || !parse_number(outlet, &out)) {
         ESP_LOGW(TAG, "water temps not numeric (\"%s\", \"%s\")", inlet, outlet);
-        s_compressor = "";
-        s_compressor_on = false;
+        set_compressor(STATE_UNKNOWN);
         return;
     }
 
     const double delta = out - in;
-    if (s_compressor_on) {
-        s_compressor_on = delta > COMP_OFF_DELTA_K;
-    } else {
-        s_compressor_on = delta >= COMP_ON_DELTA_K;
-    }
-    s_compressor = s_compressor_on ? "ON" : "OFF";
+    const bool on = s_compressor_on ? (delta > COMP_OFF_DELTA_K)
+                                    : (delta >= COMP_ON_DELTA_K);
+    set_compressor(on ? STATE_ON : STATE_OFF);
 }
 
 const char *alt_derived_compressor(void)
 {
     return s_compressor;
+}
+
+const char *alt_derived_compressor_numeric(void)
+{
+    return s_compressor_num;
 }

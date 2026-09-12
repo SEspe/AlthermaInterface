@@ -18,9 +18,10 @@
 extern "C" {
 #endif
 
-// The label these values are published under, on MQTT and in Home Assistant
+// The labels these values are published under, on MQTT and in Home Assistant
 // discovery. One definition so the two cannot drift apart.
-#define ALT_DERIVED_COMPRESSOR_LABEL "Compressor"
+#define ALT_DERIVED_COMPRESSOR_LABEL     "Compressor"
+#define ALT_DERIVED_COMPRESSOR_NUM_LABEL "Compressor numeric"
 
 // Recomputes every derived value from the converter's current readings. Call
 // once per poll cycle, after the registries have been read and before
@@ -32,6 +33,17 @@ void alt_derived_update(void);
 // active definition file does not provide the inputs. Publishers skip empty
 // values, exactly as they do for a label never read.
 const char *alt_derived_compressor(void);
+
+// The same state as "1" / "0" / "", for a numeric Home Assistant sensor.
+//
+// A second entity for one fact, deliberately. A binary sensor gives on/off
+// history but no long-term statistics, while a numeric sensor with
+// state_class measurement does - and the hourly MEAN of a 0/1 series is the
+// duty cycle, which is the figure worth trending on a heat pump. Deriving it
+// in Home Assistant would need a template sensor per install; two lines here
+// serve every install. Both come from the same evaluation, so they cannot
+// disagree.
+const char *alt_derived_compressor_numeric(void);
 
 #ifdef __cplusplus
 }

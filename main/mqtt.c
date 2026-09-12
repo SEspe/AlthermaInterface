@@ -197,6 +197,12 @@ esp_err_t alt_mqtt_publish_values(void)
     if (compressor[0] != '\0') {
         pos += snprintf(s_json + pos, ALT_JSON_MAX - pos, "\"%s\":\"%s\",",
                         ALT_DERIVED_COMPRESSOR_LABEL, compressor);
+        // Unquoted, unlike every other value here: this one exists to be a
+        // number in Home Assistant's long-term statistics, and a quoted "1"
+        // would be a string that happens to parse.
+        pos += snprintf(s_json + pos, ALT_JSON_MAX - pos, "\"%s\":%s,",
+                        ALT_DERIVED_COMPRESSOR_NUM_LABEL,
+                        alt_derived_compressor_numeric());
     }
 
     pos += snprintf(s_json + pos, ALT_JSON_MAX - pos, "\"WifiRSSI\":\"%ddBm\",", alt_wifi_rssi());

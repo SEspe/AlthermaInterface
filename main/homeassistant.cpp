@@ -54,6 +54,7 @@ static const char *kDiscoveryEnd =
 #define ESP_SENSOR_MAX_BLOCK 995
 #define ESP_SENSOR_UPTIME    994
 #define ESP_SENSOR_COMPRESSOR 993
+#define ESP_SENSOR_COMPRESSOR_NUM 992
 
 // No die temperature among these: the ESP32 classic has no supported internal
 // temperature sensor. The undocumented ROM temprature_sens_read() exists but is
@@ -94,6 +95,13 @@ static std::string getSensorDeviceAndUnit(const char *label, int convid, int dat
         // "ON"/"OFF" are Home Assistant's default payload_on / payload_off, so
         // this needs no payload mapping - the same as the convid 200 bits.
         return "\"p\":\"binary_sensor\",\"dev_cla\":\"running\",";
+    case ESP_SENSOR_COMPRESSOR_NUM:
+        // No unit and no device class: 0/1 is a flag rendered as a number, not
+        // a measured quantity in any unit. It still needs state_class
+        // measurement to reach long-term statistics, which makeSensorJson()
+        // adds explicitly - the usual test for a measurement requires a unit,
+        // and inventing one here would be worse than special-casing it.
+        return "\"p\":\"sensor\",";
     case 1:
         return "\"p\":\"sensor\",\"dev_cla\":\"temperature\",\"unit_of_meas\":\"\xC2\xB0" "C\",";
     case 2:
@@ -157,7 +165,7 @@ static std::string makeSensorJson(const char *label, int convid, int dataType,
     json.reserve(320);
     json += "\"" + key + "\":{";
     json += props;
-    if (isMeasurementSensor(props)) {
+    if (isMeasurementSensor(props) || dataType == ESP_SENSOR_COMPRESSOR_NUM) {
         json += "\"stat_cla\":\"measurement\",";
     }
     json += "\"val_tpl\":\"{{value_json['";
@@ -218,6 +226,10 @@ extern "C" const char *alt_ha_discovery_payload(size_t *len)
     // water temperatures (derived.h), and it is one of the most useful things
     // this device can say about the machine, so it belongs with the sensors.
     append(makeSensorJson(ALT_DERIVED_COMPRESSOR_LABEL, -1, ESP_SENSOR_COMPRESSOR, false));
+    // The same fact as a number, so it reaches long-term statistics: the hourly
+    // mean of a 0/1 series is the compressor's duty cycle.
+    append(makeSensorJson(ALT_DERIVED_COMPRESSOR_NUM_LABEL, -1,
+                          ESP_SENSOR_COMPRESSOR_NUM, false));
 
     for (size_t i = 0; i < count; i++) {
         const char *label = NULL;

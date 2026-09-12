@@ -582,7 +582,7 @@ static esp_err_t values_get(httpd_req_t *req)
     const char *compressor = alt_derived_compressor();
     const bool has_compressor = compressor[0] != '\0';
 
-    size_t total = converter_label_count() + (has_compressor ? 1 : 0);
+    size_t total = converter_label_count() + (has_compressor ? 2 : 0);
     char chunk[256];
 
     snprintf(chunk, sizeof(chunk), "{\"total\":%u,\"values\":[", (unsigned)total);
@@ -611,6 +611,10 @@ static esp_err_t values_get(httpd_req_t *req)
         snprintf(chunk, sizeof(chunk),
                  "%s{\"reg\":\"calc\",\"label\":\"%s\",\"value\":\"%s\"}",
                  first ? "" : ",", ALT_DERIVED_COMPRESSOR_LABEL, compressor);
+        httpd_resp_sendstr_chunk(req, chunk);
+        snprintf(chunk, sizeof(chunk),
+                 ",{\"reg\":\"calc\",\"label\":\"%s\",\"value\":\"%s\"}",
+                 ALT_DERIVED_COMPRESSOR_NUM_LABEL, alt_derived_compressor_numeric());
         httpd_resp_sendstr_chunk(req, chunk);
     }
 

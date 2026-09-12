@@ -1,7 +1,7 @@
 # FSD — AlthermaInterface
 
-**Version:** 1.17
-**Firmware:** 1.10.0
+**Version:** 1.18
+**Firmware:** 1.11.0
 **Target:** ESP32 (ESP32-WROOM devkit, 4 MB flash), ESP-IDF v6.0.1
 **Heat pump:** Daikin Altherma LT split hydrobox **EKHBH / EKHBX 008BA** —
 **protocol S**, ROTEX value mapping
@@ -11,6 +11,33 @@ is authoritative for *what the firmware must do*; `docs/PORTING.md` covers *how
 the upstream code maps onto it*.
 
 ## Changelog
+
+- v1.18 — **A numeric twin for the compressor sensor (firmware 1.11.0), §6,
+  §7.** `binary_sensor.espaltherma_compressor` gives on/off history but no
+  long-term statistics, and the figure actually worth trending on a heat pump
+  is the **duty cycle** — which is exactly the hourly *mean* of the same state
+  expressed as 0 or 1. So the state is now published twice: `Compressor` as
+  before, and `Compressor numeric` as `sensor.espaltherma_compressor_numeric`
+  with `state_class: measurement`.
+
+  Two entities for one fact, deliberately. Deriving the numeric form in Home
+  Assistant would need a template sensor written once per install; two lines
+  of firmware serve every install. Both come from a single evaluation in
+  `alt_derived_update()` — `set_compressor()` writes both forms from one
+  decision, so they cannot disagree, and a device reporting `ON` on one entity
+  and `0` on the other is a failure mode that simply cannot arise.
+
+  No device class and **no unit**: 0/1 is a flag rendered as a number, not a
+  measured quantity in any unit, and inventing a unit to satisfy the usual
+  measurement test would be worse than special-casing it. `state_class` is
+  therefore added explicitly for this one. In the `ATTR` payload it is the only
+  **unquoted** value the firmware emits — a quoted `"1"` would be a string that
+  happens to parse, which is not the point of it.
+
+  **Also corrected here:** the FSD header still read `**Firmware:** 1.10.0`
+  after v1.17 shipped as 1.10.1 — the changelog entry was updated and the
+  header was not. Exactly the kind of split v1.14 and v1.15 were written to
+  eliminate, this time in the document rather than the build.
 
 - v1.17 — **Burst sampling: a bounded window at link speed (firmware 1.10.1),
   §6, §11.** The compressor sensor of v1.16 exposed a limit that was already
@@ -761,6 +788,13 @@ the web UI and MQTT always show one evaluation rather than two made moments
 apart. A derived value carries no registry — `/api/values` marks it `calc` —
 and is omitted entirely while it cannot be determined, exactly as an unread
 label is.
+
+**`Compressor numeric`** — the same state as `0` or `1`, for
+`sensor.espaltherma_compressor_numeric`. It exists for long-term statistics,
+which a binary sensor does not feed: the hourly mean of a 0/1 series is the
+compressor's duty cycle. Both forms are written by one call in `derived.c`, so
+they cannot disagree. No unit and no device class, `state_class: measurement`
+set explicitly, and it is the only unquoted value in the `ATTR` payload.
 
 **`Compressor`** — `ON` when the circulation pump is running *and* outlet water
 is at least 2.0 K above inlet water; `OFF` below 1.2 K (hysteresis), and `OFF`
