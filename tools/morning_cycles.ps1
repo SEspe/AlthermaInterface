@@ -10,12 +10,29 @@
 
 param(
     [string]$Device   = "192.168.10.40",
-    # ESPEasy node carrying DS18B20 sensors on the same system, including the
-    # OUTDOOR temperature (ute03). X10A reports nothing from the outdoor unit,
-    # so without this a changed start rate cannot be told apart from changed
-    # weather - which is the whole point of a before/after comparison.
-    # Set to "" to skip.
-    [string]$EspEasy  = "192.168.10.160",
+    # ESPEasy nodes carrying DS18B20 sensors on the same system. Pass an empty
+    # array to skip them.
+    #
+    #   .160 "Altherma"  - heat pump flow/return, buffer tank, room, and the
+    #                      OUTDOOR temperature (ute03). X10A reports nothing
+    #                      from the outdoor unit, so without ute03 a changed
+    #                      start rate cannot be told apart from changed
+    #                      weather - the whole point of a before/after test.
+    #   .162 "Altherma2" - the tank and the two distribution lines:
+    #                        temp2 into the buffer tank, temp3 out of it
+    #                        temp4 / temp5  flow / return, first and second
+    #                                       floor heating (four circuits)
+    #                        temp6 / temp1  flow / return, basement floor
+    #                      temp4-temp5 and temp6-temp1 are the heat actually
+    #                      reaching the house, which is what decides how long
+    #                      the compressor can run before the tank is charged.
+    #                      Its SHT temperature/humidity task reads 2^64, the
+    #                      ESPEasy invalid marker - that sensor is dead.
+    #
+    # Each node's values are flattened and written as their own field, keyed by
+    # task name - .162 names every value "temperature", so keying on the value
+    # name alone collapses all six sensors into one.
+    [string[]]$EspEasy = @("192.168.10.160", "192.168.10.162"),
     [int]$Minutes     = 35,
     [int]$IntervalSec = 20,
     # Defaults to captures/ beside this script's parent, so the scheduled task
@@ -45,21 +62,28 @@ while ((Get-Date) -lt $end) {
         $json = "UNREACHABLE"
     }
 
-    $esp = "{}"
-    if ($EspEasy) {
+    $fields = @($t, $json)
+    foreach ($node in $EspEasy) {
+        if (-not $node) { continue }
         try {
-            $e = Invoke-RestMethod -Uri "http://$EspEasy/json" -TimeoutSec 5
+            $e = Invoke-RestMethod -Uri "http://$node/json" -TimeoutSec 5
             $flat = [ordered]@{}
             foreach ($s in $e.Sensors) {
-                foreach ($v in $s.TaskValues) { $flat[$v.Name] = $v.Value }
+                $vals = @($s.TaskValues)
+                foreach ($v in $vals) {
+                    # One value per task: use the task name. Several: qualify
+                    # it, so same-named values cannot overwrite each other.
+                    $key = if ($vals.Count -eq 1) { $s.TaskName } else { "$($s.TaskName).$($v.Name)" }
+                    $flat[$key] = $v.Value
+                }
             }
-            $esp = $flat | ConvertTo-Json -Compress
+            $fields += ($flat | ConvertTo-Json -Compress)
         } catch {
-            $esp = "UNREACHABLE"
+            $fields += "UNREACHABLE"
         }
     }
 
-    "$t|$json|$esp" | Out-File -FilePath $log -Append -Encoding utf8
+    ($fields -join '|') | Out-File -FilePath $log -Append -Encoding utf8
     Start-Sleep -Seconds $IntervalSec
 }
 
