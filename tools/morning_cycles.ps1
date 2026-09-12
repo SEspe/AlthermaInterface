@@ -26,13 +26,23 @@ param(
     #                      temp4-temp5 and temp6-temp1 are the heat actually
     #                      reaching the house, which is what decides how long
     #                      the compressor can run before the tank is charged.
-    #                      Its SHT temperature/humidity task reads 2^64, the
-    #                      ESPEasy invalid marker - that sensor is dead.
+    #                      Its SHT temperature/humidity task is INTERMITTENT:
+    #                      it returned 2^64, the ESPEasy invalid marker, on
+    #                      two polls and valid values minutes later. Treat any
+    #                      reading above ~1e17 as missing rather than as data.
     #
     # Each node's values are flattened and written as their own field, keyed by
     # task name - .162 names every value "temperature", so keying on the value
     # name alone collapses all six sensors into one.
-    [string[]]$EspEasy = @("192.168.10.160", "192.168.10.162"),
+    #   .161 "Climate1"  - the LIVING ROOM: a DS18B20 (Temp1) plus a BME280
+    #                      and a CO2 sensor. Note the BME280 sits beside the
+    #                      ESP32 and self-heats, reading roughly 1 K above the
+    #                      DS18B20 - prefer Temp1. This is the only view of
+    #                      whether the house actually responds to the heating;
+    #                      romtemp94 on .160 is the TECHNICAL room, which is
+    #                      warm for reasons that have nothing to do with the
+    #                      house.
+    [string[]]$EspEasy = @("192.168.10.160", "192.168.10.161", "192.168.10.162"),
     [int]$Minutes     = 35,
     [int]$IntervalSec = 20,
     # Defaults to captures/ beside this script's parent, so the scheduled task
