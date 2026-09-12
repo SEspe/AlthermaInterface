@@ -34,6 +34,17 @@
 // ROTEX mapping yields inlet/outlet water 0.56 K apart and a 37 C tank. It also
 // matches the hardware: this unit has the 8-pin ROTEX-style X10A, and it answers
 // 0x50 with 0x15 0xEA ("not understood"), exactly as this file's header notes.
+// CONFIRMED against the machine's own display on 2026-09-12. Field settings
+// [E-03] and [E-04] are read-only readouts named "Liquid refrigerant
+// temperature" and "Inlet water temperature" - the same two sensors this file
+// maps at 0x54 offsets 0 and 2. At 06:33 the controller showed 26 and 31; the
+// firmware read 24.6 / 31.6 at 06:16 and 29.3 / 31.0 at 06:36, with a
+// compressor start in between. Inlet water matches to the controller's 1 C
+// display resolution, and the refrigerant value is consistent with a reading
+// taken mid-ramp. The plain mapping would call these bytes indoor suction air
+// and indoor heat exchanger instead. So the choice below no longer rests on
+// plausibility alone.
+//
 // def/EKHBH008BA.h is our own file, derived from PROTOCOL_S_ROTEX.h with the
 // same 0x53/0x54/0x55/0x56 mapping, plus probes on 0x5A - a registry this unit
 // answers that upstream does not document. It also renames the "????" label,
