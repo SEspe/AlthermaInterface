@@ -242,6 +242,22 @@ static const char PAGE[] =
 "means the far end probably hears us just as weakly. The reference unit sits "
 "near -61 dBm; below about -75 dBm, leave transmit power alone.</p>"
 "<h3 style='font-size:13px;color:#8b93a1;font-weight:500;margin:26px 0 8px'>"
+"COMPRESSOR PROBE</h3>"
+"<label>PowerMeter host or IP</label><input id='pmh' placeholder='blank = use water temperatures'>"
+"<label>Channel label</label><input id='pmc'>"
+"<div style='display:flex;gap:10px'>"
+"<div style='flex:1'><label>ON at or above (A)</label><input id='pmon'></div>"
+"<div style='flex:1'><label>OFF below (A)</label><input id='pmoff'></div></div>"
+"<p class='hint'>Compressor state is taken from the OUTDOOR unit's supply "
+"current, which steps within a second - the water temperatures take about 40 s "
+"to show the same change. The channel label must match the one that PowerMeter "
+"publishes. Leave the host blank to use the water temperatures alone.</p>"
+"<p class='hint'>Thresholds must clear the outdoor unit's standby, and it has "
+"two levels: about 0.43 A settled, but about 0.99 A for some minutes after a "
+"stop - the crankcase heater. Set too low and the state latches ON and never "
+"clears.</p>"
+
+"<h3 style='font-size:13px;color:#8b93a1;font-weight:500;margin:26px 0 8px'>"
 "FIRMWARE SOURCE</h3>"
 "<label>GitHub repository (owner/name)</label><input id='ghr'>"
 "<p class='hint'>Releases of this repository are the only images the device "
@@ -442,6 +458,10 @@ static const char PAGE[] =
 "pinopts(document.getElementById('rxp'),PINS.concat(PINS_IN),c.rxPin);"
 "pinopts(document.getElementById('txp'),PINS,c.txPin);pinchk();"
 "document.getElementById('ghr').value=c.repo;GH=c.repo;"
+"document.getElementById('pmh').value=c.pmHost||'';"
+"document.getElementById('pmc').value=c.pmChannel||'';"
+"document.getElementById('pmon').value=c.pmOnAmps;"
+"document.getElementById('pmoff').value=c.pmOffAmps;"
 "PWR=c.powerLevels||[];var ps=document.getElementById('pwr');"
 "ps.innerHTML=PWR.map(function(l,i){return '<option value=\"'+i+'\"'+"
 "(i==c.powerLevel?' selected':'')+'>'+i+' - '+l.name+'</option>';}).join('');"
@@ -498,6 +518,10 @@ static const char PAGE[] =
 "pass:document.getElementById('pwd').value,"
 "rxPin:document.getElementById('rxp').value,txPin:document.getElementById('txp').value,"
 "repo:document.getElementById('ghr').value,"
+"pmHost:document.getElementById('pmh').value,"
+"pmChannel:document.getElementById('pmc').value,"
+"pmOnAmps:document.getElementById('pmon').value,"
+"pmOffAmps:document.getElementById('pmoff').value,"
 "powerLevel:document.getElementById('pwr').value,"
 "interval:document.getElementById('ivl').value};"
 "try{var r=await fetch('/api/config',{method:'POST',body:JSON.stringify(b)});"
@@ -582,7 +606,7 @@ static esp_err_t values_get(httpd_req_t *req)
     const char *compressor = alt_derived_compressor();
     const bool has_compressor = compressor[0] != '\0';
 
-    size_t total = converter_label_count() + (has_compressor ? 2 : 0);
+    size_t total = converter_label_count() + (has_compressor ? 3 : 0);
     char chunk[256];
 
     snprintf(chunk, sizeof(chunk), "{\"total\":%u,\"values\":[", (unsigned)total);
@@ -615,6 +639,10 @@ static esp_err_t values_get(httpd_req_t *req)
         snprintf(chunk, sizeof(chunk),
                  ",{\"reg\":\"calc\",\"label\":\"%s\",\"value\":\"%s\"}",
                  ALT_DERIVED_COMPRESSOR_NUM_LABEL, alt_derived_compressor_numeric());
+        httpd_resp_sendstr_chunk(req, chunk);
+        snprintf(chunk, sizeof(chunk),
+                 ",{\"reg\":\"calc\",\"label\":\"%s\",\"value\":\"%s\"}",
+                 ALT_DERIVED_COMPRESSOR_SRC_LABEL, alt_derived_compressor_source());
         httpd_resp_sendstr_chunk(req, chunk);
     }
 
@@ -748,10 +776,14 @@ static esp_err_t config_get(httpd_req_t *req)
     int n = snprintf(body, sizeof(body),
              "{\"uri\":\"%s\",\"user\":\"%s\",\"passSet\":%s,"
              "\"rxPin\":%d,\"txPin\":%d,\"repo\":\"%s\","
+             "\"pmHost\":\"%s\",\"pmChannel\":\"%s\","
+             "\"pmOnAmps\":%.2f,\"pmOffAmps\":%.2f,"
              "\"powerLevel\":%d,\"powerLevels\":[",
              alt_settings_mqtt_uri(), alt_settings_mqtt_user(),
              alt_settings_mqtt_pass_set() ? "true" : "false",
              alt_settings_rx_pin(), alt_settings_tx_pin(), alt_settings_gh_repo(),
+             alt_settings_pm_host(), alt_settings_pm_channel(),
+             alt_settings_pm_on_amps(), alt_settings_pm_off_amps(),
              alt_settings_power_level());
 
     // The names and descriptions come from power.c so the UI cannot drift out
@@ -891,6 +923,28 @@ static esp_err_t config_post(httpd_req_t *req)
     char repo[ALT_SETTING_MAX] = {0};
     if (json_field(body, "repo", repo, sizeof(repo)) && repo[0] != 0) {
         alt_settings_set_gh_repo(repo);
+    }
+
+    // Compressor power source. An EMPTY pmHost is meaningful here and not
+    // "absent" - it is how the source is switched off again - so this is
+    // keyed on the field being present at all.
+    char pmhost[ALT_SETTING_MAX] = {0};
+    if (json_field(body, "pmHost", pmhost, sizeof(pmhost))) {
+        char pmchan[ALT_SETTING_MAX] = {0};
+        char pmon[16] = {0}, pmoff[16] = {0};
+        if (!json_field(body, "pmChannel", pmchan, sizeof(pmchan)) || pmchan[0] == 0) {
+            strlcpy(pmchan, alt_settings_pm_channel(), sizeof(pmchan));
+        }
+        float on  = json_field(body, "pmOnAmps",  pmon,  sizeof(pmon))  && pmon[0]
+                        ? strtof(pmon, NULL)  : alt_settings_pm_on_amps();
+        float off = json_field(body, "pmOffAmps", pmoff, sizeof(pmoff)) && pmoff[0]
+                        ? strtof(pmoff, NULL) : alt_settings_pm_off_amps();
+        esp_err_t pmerr = alt_settings_set_powermeter(pmhost, pmchan, on, off);
+        if (pmerr == ESP_ERR_INVALID_ARG) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
+                                "compressor thresholds must be positive and off < on");
+            return ESP_FAIL;
+        }
     }
 
     // Absent means "leave it alone" here too.

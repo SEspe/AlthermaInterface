@@ -22,6 +22,7 @@ extern "C" {
 // discovery. One definition so the two cannot drift apart.
 #define ALT_DERIVED_COMPRESSOR_LABEL     "Compressor"
 #define ALT_DERIVED_COMPRESSOR_NUM_LABEL "Compressor numeric"
+#define ALT_DERIVED_COMPRESSOR_SRC_LABEL "Compressor source"
 
 // Recomputes every derived value from the converter's current readings. Call
 // once per poll cycle, after the registries have been read and before
@@ -44,6 +45,16 @@ const char *alt_derived_compressor(void);
 // serve every install. Both come from the same evaluation, so they cannot
 // disagree.
 const char *alt_derived_compressor_numeric(void);
+
+// Which source decided the compressor state: "power" from the outdoor unit's
+// current, "delta" from the water temperatures, or "" when it is undetermined.
+//
+// Published, not internal. The two sources have very different timing - the
+// delta declared a start 39 s late when measured against the current step on
+// 2026-09-15 - so a consumer comparing runs recorded on different days needs
+// to know which one produced them. A silent fallback would make the record
+// look consistent when it is not.
+const char *alt_derived_compressor_source(void);
 
 #ifdef __cplusplus
 }

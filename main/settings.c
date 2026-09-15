@@ -48,6 +48,10 @@ static const char *TAG = "settings";
 #define KEY_IP_DNS    "ip_dns"
 #define KEY_PWR_LEVEL "pwr_level"
 #define KEY_POLL_S    "poll_s"
+#define KEY_PM_HOST   "pm_host"
+#define KEY_PM_CHAN   "pm_chan"
+#define KEY_PM_ON_MA  "pm_on_ma"
+#define KEY_PM_OFF_MA "pm_off_ma"
 
 static char s_uri[ALT_SETTING_MAX];
 static char s_user[ALT_SETTING_MAX];
@@ -63,6 +67,27 @@ static int  s_rx_pin = ALT_UART_RX_PIN;
 static int  s_tx_pin = ALT_UART_TX_PIN;
 // owner/name of the GitHub repo whose releases the device may flash from.
 static char s_gh_repo[ALT_SETTING_MAX] = ALT_GITHUB_REPO_DEFAULT;
+
+// Compressor power source. Disabled until a host is saved, so a device
+// that has never been told about a PowerMeter behaves exactly as before.
+// Thresholds are held in milliamps because NVS stores integers and a float
+// round-trip through a blob would be a needless failure mode.
+//
+// The defaults are measured, not guessed, and the margin matters more than it
+// looks. The outdoor unit has TWO standby levels: 0.43 A once settled, and
+// 0.99 A for some minutes after a stop - the crankcase heater. A threshold set
+// just above the settled figure latches on the post-stop one and never clears,
+// reporting the compressor permanently ON. Running current was 4.1-7.7 A over
+// a full cycle on 2026-09-15, so 2.0/1.5 A clears both standby levels with
+// room and still sits far below anything observed while running.
+//
+// UNRESOLVED: minimum modulation may be around 1 A, which would fall inside
+// the post-stop standby band and be unresolvable by current alone. That figure
+// predates the repair of the outdoor CT and has not been reproduced since.
+static char s_pm_host[ALT_SETTING_MAX];
+static char s_pm_chan[ALT_SETTING_MAX] = "Outdoor";
+static int  s_pm_on_ma  = 2000;
+static int  s_pm_off_ma = 1500;
 
 static char s_wifi_ssid[ALT_SETTING_MAX];
 static char s_wifi_pass[ALT_SETTING_MAX];
@@ -124,6 +149,13 @@ esp_err_t alt_settings_init(void)
     load_str(h, KEY_IP_GW,     s_ip_gw,   sizeof(s_ip_gw));
     load_str(h, KEY_IP_MASK,   s_ip_mask, sizeof(s_ip_mask));
     load_str(h, KEY_IP_DNS,    s_ip_dns,  sizeof(s_ip_dns));
+    load_str(h, KEY_PM_HOST,   s_pm_host, sizeof(s_pm_host));
+    load_str(h, KEY_PM_CHAN,   s_pm_chan, sizeof(s_pm_chan));
+    {
+        int32_t v;
+        if (nvs_get_i32(h, KEY_PM_ON_MA,  &v) == ESP_OK) s_pm_on_ma  = (int)v;
+        if (nvs_get_i32(h, KEY_PM_OFF_MA, &v) == ESP_OK) s_pm_off_ma = (int)v;
+    }
 
     uint8_t mode = s_ip_static ? 1 : 0;
     if (nvs_get_u8(h, KEY_IP_MODE, &mode) == ESP_OK) {
@@ -239,6 +271,41 @@ esp_err_t alt_settings_set_ip(bool use_static, const char *addr, const char *gw,
         ESP_LOGI(TAG, "saved IP mode %s%s%s", s_ip_static ? "static " : "DHCP",
                  s_ip_static ? "" : "", s_ip_static ? s_ip_addr : "");
     }
+    return err;
+}
+
+const char *alt_settings_pm_host(void)    { return s_pm_host; }
+const char *alt_settings_pm_channel(void) { return s_pm_chan; }
+float alt_settings_pm_on_amps(void)       { return s_pm_on_ma  / 1000.0f; }
+float alt_settings_pm_off_amps(void)      { return s_pm_off_ma / 1000.0f; }
+
+esp_err_t alt_settings_set_powermeter(const char *host, const char *channel,
+                                      float on_amps, float off_amps)
+{
+    if (!host || !channel) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    // The OFF threshold must sit below the ON threshold or the hysteresis is
+    // not hysteresis - it is a rule that can never settle.
+    if (on_amps <= 0.0f || off_amps <= 0.0f || off_amps >= on_amps) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    strlcpy(s_pm_host, host, sizeof(s_pm_host));
+    strlcpy(s_pm_chan, channel, sizeof(s_pm_chan));
+    s_pm_on_ma  = (int)(on_amps  * 1000.0f + 0.5f);
+    s_pm_off_ma = (int)(off_amps * 1000.0f + 0.5f);
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = nvs_set_str(h, KEY_PM_HOST, s_pm_host);
+    if (err == ESP_OK) err = nvs_set_str(h, KEY_PM_CHAN, s_pm_chan);
+    if (err == ESP_OK) err = nvs_set_i32(h, KEY_PM_ON_MA,  s_pm_on_ma);
+    if (err == ESP_OK) err = nvs_set_i32(h, KEY_PM_OFF_MA, s_pm_off_ma);
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
     return err;
 }
 

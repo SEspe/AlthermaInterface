@@ -203,6 +203,12 @@ esp_err_t alt_mqtt_publish_values(void)
         pos += snprintf(s_json + pos, ALT_JSON_MAX - pos, "\"%s\":%s,",
                         ALT_DERIVED_COMPRESSOR_NUM_LABEL,
                         alt_derived_compressor_numeric());
+        // Which source decided it. The two differ by tens of seconds on every
+        // edge, so a consumer comparing records from different days has to be
+        // able to tell them apart.
+        pos += snprintf(s_json + pos, ALT_JSON_MAX - pos, "\"%s\":\"%s\",",
+                        ALT_DERIVED_COMPRESSOR_SRC_LABEL,
+                        alt_derived_compressor_source());
     }
 
     pos += snprintf(s_json + pos, ALT_JSON_MAX - pos, "\"WifiRSSI\":\"%ddBm\",", alt_wifi_rssi());

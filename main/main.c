@@ -21,6 +21,7 @@
 #include "althermaserial.h"
 #include "board_config.h"
 #include "burst.h"
+#include "compressor_power.h"
 #include "converters.h"
 #include "derived.h"
 #include "mqtt.h"
@@ -183,6 +184,10 @@ void app_main(void)
     }
     alt_mqtt_log_redirect();
 
+    // Started after the network is up, since it reads another device over
+    // HTTP. Does nothing at all unless a PowerMeter host has been saved.
+    alt_compressor_power_start();
+
     // Rollback contract (CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE): only now, with
     // settings, UART, WiFi, MQTT and the web server all up, is this image worth
     // keeping. It used to be marked valid immediately after nvs_flash_init(),
@@ -216,6 +221,9 @@ void app_main(void)
     // Arming a burst wakes this task out of its wait, so a window opens at once
     // instead of at the next scheduled cycle.
     alt_burst_register_waiter(xTaskGetCurrentTaskHandle());
+    // Same notification, different reason: a compressor edge should reach
+    // Home Assistant when it happens, not up to 30 s later.
+    alt_compressor_power_register_waiter(xTaskGetCurrentTaskHandle());
 
     bool was_bursting = false;
 

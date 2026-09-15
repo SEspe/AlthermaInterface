@@ -8,6 +8,7 @@
 
 #include "esp_log.h"
 
+#include "compressor_power.h"
 #include "converters.h"
 
 static const char *TAG = "derived";
@@ -49,6 +50,7 @@ static const char *TAG = "derived";
 
 static const char *s_compressor = "";
 static const char *s_compressor_num = "";
+static const char *s_compressor_src = "";
 static bool s_compressor_on;
 static bool s_guard_failed;
 
@@ -58,8 +60,9 @@ static bool s_guard_failed;
 // reported nothing.
 typedef enum { STATE_UNKNOWN = -1, STATE_OFF = 0, STATE_ON = 1 } comp_state_t;
 
-static void set_compressor(comp_state_t state)
+static void set_compressor(comp_state_t state, const char *source)
 {
+    s_compressor_src = (state == STATE_UNKNOWN) ? "" : source;
     switch (state) {
     case STATE_ON:
         s_compressor = "ON";
@@ -121,12 +124,28 @@ static bool parse_number(const char *s, double *out)
 
 void alt_derived_update(void)
 {
+    // The outdoor unit's current is the better signal by a wide margin - it
+    // steps within a second, where the water delta took a measured 39 s to
+    // declare a start and longer to declare a stop. Prefer it whenever it can
+    // be trusted; alt_compressor_power_state() returns UNKNOWN rather than a
+    // guess when it cannot.
+    switch (alt_compressor_power_state()) {
+    case ALT_CP_ON:
+        set_compressor(STATE_ON, "power");
+        return;
+    case ALT_CP_OFF:
+        set_compressor(STATE_OFF, "power");
+        return;
+    default:
+        break;   // fall through to the water delta
+    }
+
     const char *pump   = input_value(REG_BOOLS, OFF_PUMP,   GUARD_PUMP);
     const char *inlet  = input_value(REG_TEMPS, OFF_INLET,  GUARD_INLET);
     const char *outlet = input_value(REG_TEMPS, OFF_OUTLET, GUARD_OUTLET);
 
     if (!pump || !inlet || !outlet) {
-        set_compressor(STATE_UNKNOWN);
+        set_compressor(STATE_UNKNOWN, NULL);
         return;
     }
 
@@ -135,21 +154,21 @@ void alt_derived_update(void)
     // been observed running with the pump stopped, and on a hydrobox it cannot:
     // it would have no heat sink.
     if (strcmp(pump, "ON") != 0) {
-        set_compressor(STATE_OFF);
+        set_compressor(STATE_OFF, "delta");
         return;
     }
 
     double in = 0.0, out = 0.0;
     if (!parse_number(inlet, &in) || !parse_number(outlet, &out)) {
         ESP_LOGW(TAG, "water temps not numeric (\"%s\", \"%s\")", inlet, outlet);
-        set_compressor(STATE_UNKNOWN);
+        set_compressor(STATE_UNKNOWN, NULL);
         return;
     }
 
     const double delta = out - in;
     const bool on = s_compressor_on ? (delta > COMP_OFF_DELTA_K)
                                     : (delta >= COMP_ON_DELTA_K);
-    set_compressor(on ? STATE_ON : STATE_OFF);
+    set_compressor(on ? STATE_ON : STATE_OFF, "delta");
 }
 
 const char *alt_derived_compressor(void)
@@ -160,4 +179,9 @@ const char *alt_derived_compressor(void)
 const char *alt_derived_compressor_numeric(void)
 {
     return s_compressor_num;
+}
+
+const char *alt_derived_compressor_source(void)
+{
+    return s_compressor_src;
 }

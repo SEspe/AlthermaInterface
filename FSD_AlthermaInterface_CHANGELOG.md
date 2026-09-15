@@ -20,6 +20,65 @@ the code, the version bump in `main/version.h`, and an entry here land together.
 
 ---
 
+- v1.20 — **Compressor state from the outdoor unit's current, with the water
+  delta as fallback (firmware 1.12.1), §6, §8.** The derived compressor sensor
+  was never wrong about *state*, but it was always late about *timing*, and on
+  2026-09-15 that was measured against ground truth for the first time rather
+  than inferred.
+
+  A PowerMeter node on the outdoor unit's supply gave the reference. Against
+  the current step: the water delta declared a start **39 s late** and a stop
+  **40 s late**. Previous estimates of the OFF lag (~24 s) had come from burst
+  sampling of the thermal decay alone and omitted the poll quantisation on top
+  of it.
+
+  So the outdoor current becomes the preferred source, polled every 5 s, `ON`
+  at or above 2.0 A and `OFF` below 1.5 A. A change of state now **wakes the
+  poll loop immediately** — reusing the notification burst mode already had —
+  because a state known within 5 s but published up to 30 s later would discard
+  most of the benefit. That costs one extra query cycle per transition, a
+  handful an hour against the 120 already performed.
+
+  **The thresholds are measured, and the first ones proposed were wrong.** The
+  outdoor unit has *two* standby levels: 0.43 A once settled, and **0.99 A for
+  some minutes after a stop**, which is the crankcase heater. An initial
+  proposal of 0.8 A on / 0.6 A off would have latched on that post-stop level
+  and never cleared, reporting the compressor permanently ON. Running current
+  over a full cycle was 4.1–7.7 A, so 2.0/1.5 A clears both standby levels with
+  room. Unresolved: minimum modulation may be near 1 A, which would fall inside
+  the post-stop band and be unresolvable by current alone — that figure
+  predates the repair of the outdoor CT and has not been reproduced since.
+
+  **The source is refused rather than trusted** when no host is configured, the
+  node is unreachable, the reading is older than 20 s, or the current is outside
+  0–60 A; the water delta then decides. This is not defensive programming for
+  its own sake. Hours before the feature was written, the same outdoor channel
+  reported a steady 3.9 A while the compressor was off — its CT's positive input
+  was disconnected, and the floating input produced a plausible, load-independent
+  number. The house meter caught it: 874 W claimed against a 778 W whole house,
+  and 3.75 A on a line-to-line load whose other line carried 1.40 A. Both
+  impossible. A firmware that had simply believed its input would have reported
+  the compressor permanently running.
+
+  New diagnostic entity **`Compressor source`** publishes `power` or `delta`.
+  The two differ by tens of seconds on every edge, so history recorded under one
+  is not directly comparable with history recorded under the other, and a silent
+  fallback would hide that.
+
+  Configuration follows the existing pattern — host, channel and both thresholds
+  in NVS from the Config tab, empty host disabling the source. That is the
+  shipped default, so a device never told about a PowerMeter behaves exactly as
+  it did before. **1.12.0 reached the device with the endpoint but no Config tab
+  fields**, making the feature settable only over HTTP; 1.12.1 adds them, and the
+  version moved rather than reusing 1.12.0 for a different binary.
+
+  Ground truth throughout was the indoor unit's **compressor icon** (operation
+  manual item 15, *"indicates that the compressor in the outdoor unit is
+  active"*), called out by the owner and captured by `tools/mark_compressor.ps1`.
+  Worth noting for future work: the call-outs themselves lagged the current step
+  by around 34 s, so human observation is fine for labelling states and useless
+  for timing edges.
+
 - v1.19 — **Specification and history split into two files (firmware 1.11.0).**
   `FSD_AlthermaInterface.md` becomes the clean current specification — present
   tense, no history — and this file takes the development record, all 32

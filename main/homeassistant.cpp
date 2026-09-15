@@ -55,6 +55,7 @@ static const char *kDiscoveryEnd =
 #define ESP_SENSOR_UPTIME    994
 #define ESP_SENSOR_COMPRESSOR 993
 #define ESP_SENSOR_COMPRESSOR_NUM 992
+#define ESP_SENSOR_COMPRESSOR_SRC 991
 
 // No die temperature among these: the ESP32 classic has no supported internal
 // temperature sensor. The undocumented ROM temprature_sens_read() exists but is
@@ -95,6 +96,10 @@ static std::string getSensorDeviceAndUnit(const char *label, int convid, int dat
         // "ON"/"OFF" are Home Assistant's default payload_on / payload_off, so
         // this needs no payload mapping - the same as the convid 200 bits.
         return "\"p\":\"binary_sensor\",\"dev_cla\":\"running\",";
+    case ESP_SENSOR_COMPRESSOR_SRC:
+        // A plain text sensor, and diagnostic rather than primary: it says how
+        // the compressor state was decided, not anything about the machine.
+        return "\"p\":\"sensor\",";
     case ESP_SENSOR_COMPRESSOR_NUM:
         // No unit and no device class: 0/1 is a flag rendered as a number, not
         // a measured quantity in any unit. It still needs state_class
@@ -230,6 +235,11 @@ extern "C" const char *alt_ha_discovery_payload(size_t *len)
     // mean of a 0/1 series is the compressor's duty cycle.
     append(makeSensorJson(ALT_DERIVED_COMPRESSOR_NUM_LABEL, -1,
                           ESP_SENSOR_COMPRESSOR_NUM, false));
+    // Diagnostic: "power" or "delta". The two sources differ by tens of
+    // seconds on every edge, so history recorded under one is not directly
+    // comparable with history recorded under the other.
+    append(makeSensorJson(ALT_DERIVED_COMPRESSOR_SRC_LABEL, -1,
+                          ESP_SENSOR_COMPRESSOR_SRC, true));
 
     for (size_t i = 0; i < count; i++) {
         const char *label = NULL;

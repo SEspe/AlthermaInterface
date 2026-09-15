@@ -1,7 +1,7 @@
 # FSD — AlthermaInterface
 
-**Version:** 1.19
-**Firmware:** 1.11.0
+**Version:** 1.20
+**Firmware:** 1.12.1
 **Target:** ESP32 (ESP32-WROOM devkit, 4 MB flash), ESP-IDF v6.0.1
 **Heat pump:** Daikin Altherma LT split hydrobox **EKHBH / EKHBX 008BA** —
 **protocol S**, ROTEX value mapping
@@ -133,15 +133,48 @@ compressor's duty cycle. Both forms are written by one call in `derived.c`, so
 they cannot disagree. No unit and no device class, `state_class: measurement`
 set explicitly, and it is the only unquoted value in the `ATTR` payload.
 
-**`Compressor`** — `ON` when the circulation pump is running *and* outlet water
-is at least 2.0 K above inlet water; `OFF` below 1.2 K (hysteresis), and `OFF`
-whenever the pump is stopped. There is no compressor field to read: the 256-ID
-scan found five registries that answer, and `0x53`'s only non-zero offsets in
-any capture are 0, 3 and 5. The plain `PROTOCOL_S.h` map does carry
-`INV Comp. Frequency`, but that mapping was rejected against real bytes — those
-fields belong to an outdoor-unit PCB this service port does not reach.
+**`Compressor`** — `ON` or `OFF`, from whichever of two sources can be trusted.
+There is no compressor field to read: the 256-ID scan found five registries that
+answer, and `0x53`'s only non-zero offsets in any capture are 0, 3 and 5. The
+plain `PROTOCOL_S.h` map does carry `INV Comp. Frequency`, but that mapping was
+rejected against real bytes — those fields belong to an outdoor-unit PCB this
+service port does not reach.
 
-The rule rests on three captures in `captures/` — a forced DHW cycle, an
+**Preferred source: the outdoor unit's supply current**, read over HTTP from a
+PowerMeter node every 5 s. `ON` at or above 2.0 A, `OFF` below 1.5 A
+(hysteresis). The current steps within a second of the compressor starting or
+stopping, so this source is accurate to about 5 s on both edges.
+
+A change of state **wakes the poll loop immediately** rather than waiting for
+the next cycle, because a state known within 5 s but published up to 30 s later
+would throw most of the benefit away. That costs one extra query cycle per
+transition.
+
+The thresholds must clear **two** standby levels, not one: the outdoor unit
+draws about 0.43 A once settled but about **0.99 A for some minutes after a
+stop**, which is the crankcase heater. A threshold set just above the settled
+figure latches on the post-stop one and never clears. Both are settings, since
+the right values depend on the machine.
+
+This source is used **only while it can be trusted**. It is refused when no host
+is configured, the node is unreachable, the reading is older than 20 s, or the
+current is outside 0–60 A. Refusal is not a guess: it hands the decision back to
+the water delta.
+
+**Fallback source: the water delta.** `ON` when the circulation pump is running
+*and* outlet water is at least 2.0 K above inlet water; `OFF` below 1.2 K
+(hysteresis), and `OFF` whenever the pump is stopped. Always available, needing
+nothing beyond X10A, but **systematically late** — measured against the current
+step, it declared a start 39 s late and a stop 40 s late. The lag is thermal on
+the OFF edge and cannot be tuned away.
+
+**`Compressor source`** — `power` or `delta`, published as a diagnostic, and
+empty while the state is undetermined. The two sources differ by tens of seconds
+on every edge, so a record made under one is not directly comparable with a
+record made under the other; a silent fallback would make the history look
+consistent when it is not.
+
+The fallback rule rests on three captures in `captures/` — a forced DHW cycle, an
 overnight run and a space-heating run. With the pump circulating, the water
 delta is sharply **bimodal**: 0.1–0.9 K with the compressor idle, 3–7 K with it
 running, and 8 of 426 pump-on samples anywhere between 1 and 3 K, all of them
@@ -188,6 +221,16 @@ UI, NVS wins.
 The stored MQTT password is never sent to the browser. `GET /api/config`
 reports only whether one exists, and a blank password field on save means "keep
 the stored one", so the broker address can be changed without retyping it.
+
+The **compressor power source** is configured the same way: the PowerMeter host,
+which channel of it to read, and the two current thresholds. An empty host
+disables the source entirely, which is the shipped default — a device that has
+never been told about a PowerMeter behaves exactly as one that predates the
+feature. The thresholds are settings rather than constants because the right
+values depend on the machine's standby draw and its minimum modulation, neither
+of which this firmware can discover for itself. `POST /api/config` rejects a
+pair where the off threshold is not below the on threshold, since that is not
+hysteresis but a rule that can never settle.
 
 Still compile-time, to be moved later: WiFi credentials (in `secrets.h`), poll
 frequency, output pin roles, and the model definition selection (see

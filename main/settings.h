@@ -65,6 +65,24 @@ esp_err_t alt_settings_set_ip(bool use_static, const char *addr, const char *gw,
 const char *alt_settings_gh_repo(void);
 esp_err_t alt_settings_set_gh_repo(const char *repo);
 
+// ---- Compressor power source --------------------------------------------
+// Optional. A PowerMeter node measuring the OUTDOOR unit's supply gives a far
+// better compressor signal than the water delta can: the current steps within
+// a second, where the delta takes tens of seconds to build or decay. Empty
+// host disables it and the water-delta rule stands alone.
+//
+// The label selects which channel of that node to read, because a PowerMeter
+// may carry several. Thresholds are in amps, with hysteresis; they are
+// settings rather than constants because the right values depend on the
+// machine's standby draw and its minimum modulation, neither of which is
+// knowable from here.
+const char *alt_settings_pm_host(void);     // "" = disabled
+const char *alt_settings_pm_channel(void);
+float alt_settings_pm_on_amps(void);
+float alt_settings_pm_off_amps(void);
+esp_err_t alt_settings_set_powermeter(const char *host, const char *channel,
+                                      float on_amps, float off_amps);
+
 // ---- X10A pin map -------------------------------------------------------
 // Defaults come from board_config.h; NVS overrides once saved from the Config
 // tab. Getting these wrong costs the heat pump link but not the device: WiFi
