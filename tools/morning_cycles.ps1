@@ -43,6 +43,21 @@ param(
     #                      warm for reasons that have nothing to do with the
     #                      house.
     [string[]]$EspEasy = @("192.168.10.160", "192.168.10.161", "192.168.10.162"),
+    # PowerMeter nodes (sibling project), /api/values. Each channel is
+    # flattened to "<label>.i" amps and "<label>.p" watts.
+    #
+    #   .231 "PowerMeterIndoorUnit"  - indoor unit, pump and controls
+    #   .238 "PowerMeterOutdoorUnit" - the compressor, on L2-L3
+    #
+    # Amps are the honest quantity. The watts are `V x I` with power factor
+    # ASSUMED to be 1, and the compressor's measured PF runs 0.60 at minimum
+    # modulation to 0.91 at full load - so those watts overstate real power by
+    # up to 67 %. Use them for detecting state, never for energy.
+    [string[]]$PowerMeter = @("192.168.10.231", "192.168.10.238"),
+    # AMS house meter. Gives TRUE active power for the whole installation, so
+    # it is the sanity check on everything above: no sub-meter may exceed it.
+    # That test caught a stuck outdoor CT reading 874 W against a 778 W house.
+    [string]$AmsMeter = "192.168.10.190",
     [int]$Minutes     = 35,
     [int]$IntervalSec = 20,
     # Defaults to captures/ beside this script's parent, so the scheduled task
@@ -86,6 +101,37 @@ while ((Get-Date) -lt $end) {
                     $key = if ($vals.Count -eq 1) { $s.TaskName } else { "$($s.TaskName).$($v.Name)" }
                     $flat[$key] = $v.Value
                 }
+            }
+            $fields += ($flat | ConvertTo-Json -Compress)
+        } catch {
+            $fields += "UNREACHABLE"
+        }
+    }
+
+    foreach ($node in $PowerMeter) {
+        if (-not $node) { continue }
+        try {
+            $m = Invoke-RestMethod -Uri "http://$node/api/values" -TimeoutSec 5
+            $flat = [ordered]@{}
+            foreach ($c in $m.ch) {
+                $flat["$($c.label).i"] = $c.i
+                $flat["$($c.label).p"] = $c.p
+            }
+            $fields += ($flat | ConvertTo-Json -Compress)
+        } catch {
+            $fields += "UNREACHABLE"
+        }
+    }
+
+    if ($AmsMeter) {
+        try {
+            $h = Invoke-RestMethod -Uri "http://$AmsMeter/data.json" -TimeoutSec 5
+            # Only the fields that matter: true active power, and per-phase
+            # volts and amps for the "no sub-meter may exceed this" check.
+            $flat = [ordered]@{ w = $h.w }
+            foreach ($ph in 'l1','l2','l3') {
+                $flat["$ph.u"] = $h.$ph.u
+                $flat["$ph.i"] = $h.$ph.i
             }
             $fields += ($flat | ConvertTo-Json -Compress)
         } catch {
