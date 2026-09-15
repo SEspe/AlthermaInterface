@@ -4,6 +4,7 @@
 #include "settings.h"
 
 #include <string.h>
+#include <strings.h>
 
 #include "esp_log.h"
 #include "nvs.h"
@@ -279,6 +280,28 @@ const char *alt_settings_pm_channel(void) { return s_pm_chan; }
 float alt_settings_pm_on_amps(void)       { return s_pm_on_ma  / 1000.0f; }
 float alt_settings_pm_off_amps(void)      { return s_pm_off_ma / 1000.0f; }
 
+// Accepts a full URL as well as a bare host. "http://192.168.10.238/" is what
+// a browser puts on the clipboard and what anyone reasonably types into a field
+// labelled "host or IP"; rejecting it would be the field's fault, not the
+// user's. Stores the bare host[:port] that the URL builder expects, so
+// /api/config shows what was actually kept rather than what was typed.
+static void normalise_host(char *h, size_t len)
+{
+    const char *p = h;
+    if (strncasecmp(p, "http://", 7) == 0) {
+        p += 7;
+    } else if (strncasecmp(p, "https://", 8) == 0) {
+        p += 8;
+    }
+    char tmp[ALT_SETTING_MAX];
+    strlcpy(tmp, p, sizeof(tmp));
+    char *slash = strchr(tmp, '/');
+    if (slash) {
+        *slash = '\0';
+    }
+    strlcpy(h, tmp, len);
+}
+
 esp_err_t alt_settings_set_powermeter(const char *host, const char *channel,
                                       float on_amps, float off_amps)
 {
@@ -291,6 +314,7 @@ esp_err_t alt_settings_set_powermeter(const char *host, const char *channel,
         return ESP_ERR_INVALID_ARG;
     }
     strlcpy(s_pm_host, host, sizeof(s_pm_host));
+    normalise_host(s_pm_host, sizeof(s_pm_host));
     strlcpy(s_pm_chan, channel, sizeof(s_pm_chan));
     s_pm_on_ma  = (int)(on_amps  * 1000.0f + 0.5f);
     s_pm_off_ma = (int)(off_amps * 1000.0f + 0.5f);

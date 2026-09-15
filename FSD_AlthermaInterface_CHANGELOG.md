@@ -20,6 +20,21 @@ the code, the version bump in `main/version.h`, and an entry here land together.
 
 ---
 
+- v1.21 — **The PowerMeter host field accepts a URL (firmware 1.12.2), §8.**
+  The field is labelled "PowerMeter host or IP" and the first thing typed into
+  it was `http://192.168.10.238/` — which is what a browser puts on the
+  clipboard, and an entirely reasonable reading of the label. The firmware built
+  `http://http://192.168.10.238//api/values`, could not fetch it, and fell back
+  to the water delta.
+
+  The fallback worked exactly as designed — the source was refused rather than
+  guessed at, and `Compressor source` reported `delta` so the situation was
+  visible rather than silent. But a field that rejects the obvious input is the
+  field's fault. `alt_settings_set_powermeter()` now strips a `http://` or
+  `https://` prefix and everything from the first slash, storing the bare
+  `host[:port]` the URL builder expects. Normalised on save rather than on use,
+  so `GET /api/config` and the Config tab show what was actually kept.
+
 - v1.20 — **Compressor state from the outdoor unit's current, with the water
   delta as fallback (firmware 1.12.1), §6, §8.** The derived compressor sensor
   was never wrong about *state*, but it was always late about *timing*, and on

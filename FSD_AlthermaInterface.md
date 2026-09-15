@@ -1,7 +1,7 @@
 # FSD — AlthermaInterface
 
-**Version:** 1.20
-**Firmware:** 1.12.1
+**Version:** 1.21
+**Firmware:** 1.12.2
 **Target:** ESP32 (ESP32-WROOM devkit, 4 MB flash), ESP-IDF v6.0.1
 **Heat pump:** Daikin Altherma LT split hydrobox **EKHBH / EKHBX 008BA** —
 **protocol S**, ROTEX value mapping
