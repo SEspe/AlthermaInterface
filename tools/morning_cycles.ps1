@@ -71,6 +71,31 @@ $stamp = Get-Date -Format "yyyy-MM-dd_HHmm"
 $log   = Join-Path $OutDir "cycles_$stamp.log"
 $end   = (Get-Date).AddMinutes($Minutes)
 
+# Keep Windows awake for the duration of the capture.
+#
+# On 2026-09-16 the PC entered S3 sleep at 22:24 with a 24-hour capture
+# running. The script froze with it, resumed at 06:00 and immediately hit its
+# end time, so the whole night - including the DHW cycle that was the point of
+# the run - is a 7.6-hour hole in the log with no error anywhere. Idle sleep
+# is the one failure mode that leaves the process alive and the file looking
+# healthy, so it has to be blocked rather than detected.
+#
+# ES_CONTINUOUS | ES_SYSTEM_REQUIRED holds off IDLE sleep only; a lid close or
+# an explicit Sleep from the Start menu still wins. The flag is per-thread and
+# dies with the process, so nothing has to be cleaned up if this is killed.
+#
+# The flag is written as the decimal 2147483649, not 0x80000001: PowerShell 5.1
+# parses a hex literal with the top bit set as a NEGATIVE Int32, and the cast to
+# uint32 then fails with a non-terminating error - the script carries on and the
+# machine sleeps anyway. A returned previous-state of 0x80000000 or 0x80000001
+# confirms the call landed.
+Add-Type -Name Power -Namespace Win32 -MemberDefinition @'
+[DllImport("kernel32.dll", SetLastError = true)]
+public static extern uint SetThreadExecutionState(uint esFlags);
+'@
+$prev = [Win32.Power]::SetThreadExecutionState([uint32]2147483649)
+if ($prev -eq 0) { Write-Warning "SetThreadExecutionState failed - the PC may sleep mid-capture" }
+
 "# AlthermaInterface cycle log, started $(Get-Date -Format 's'), device $Device" |
     Out-File -FilePath $log -Encoding utf8
 
