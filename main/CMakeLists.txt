@@ -13,6 +13,7 @@ idf_component_register(
         "derived.c"            # new: state inferred from the readings
         "compressor_power.c"   # new: compressor state from outdoor current
         "burst.c"              # new: bounded 1 Hz sampling window
+        "display.c"            # new: onboard SSD1306 status page (optional)
         "web_server.c"         # new: config UI, WiFi diag, values, OTA upload
         # "control.c"          # <- thermostat / smart grid / safety relay
     INCLUDE_DIRS "."
@@ -21,6 +22,7 @@ idf_component_register(
         spi_flash
         esp_driver_uart
         esp_driver_gpio
+        esp_driver_i2c
         esp_wifi
         esp_event
         esp_netif

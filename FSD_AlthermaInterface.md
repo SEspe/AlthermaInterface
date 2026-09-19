@@ -1,7 +1,7 @@
 # FSD — AlthermaInterface
 
-**Version:** 1.21
-**Firmware:** 1.12.2
+**Version:** 1.22
+**Firmware:** 1.13.0
 **Target:** ESP32 (ESP32-WROOM devkit, 4 MB flash), ESP-IDF v6.0.1
 **Heat pump:** Daikin Altherma LT split hydrobox **EKHBH / EKHBX 008BA** —
 **protocol S**, ROTEX value mapping
@@ -62,6 +62,44 @@ is safe — but a missing boot log points here.
 
 Every output must be driven to its inactive state before its pin is configured
 as an output, so that boot-time pin float cannot command the heat pump.
+
+### 3.3 Onboard OLED (optional)
+A 128×64 SSD1306 on I²C — **`SDA = GPIO5`**, **`SCL = GPIO4`**, address
+**`0x3C`** — as fitted to the Lolin ESP32 boards this runs on. Pins in
+`main/board_config.h`.
+
+**The display is optional and detected, never configured.** `alt_display_init()`
+probes the address once at boot; if nothing answers it logs the fact and every
+later call is a no-op. One binary therefore serves a board with a panel and a
+plain WROOM devkit without one, and there is no setting to get wrong.
+
+The panel is **output only**. It shows what the device already publishes, so
+the firmware remains publish-only (§2) and nothing on screen influences what is
+polled or sent.
+
+Layout, redrawn once per query cycle immediately after the derived values are
+recomputed, so screen and published values come from one evaluation:
+
+```
+AlthermaInterface
+192.168.10.40
+
+Comp ON  power
+
+In   32.3 C
+Out  36.6 C
+Tank 44.2 C
+```
+
+The compressor **source** is shown beside the state because the two sources
+differ by tens of seconds on every edge (§6), so "ON" alone does not say how
+fresh it is. A reading that is missing, not yet taken, or whose label has been
+renamed shows as `--` rather than a stale or wrong number. Before the first
+reading exists the screen carries a boot banner, so the panel says something
+during the WiFi connect wait instead of looking dead.
+
+I²C errors are logged once per outage, not once per cycle: a loose panel must
+not drown the log the X10A link is diagnosed from.
 
 ## 4. Query cycle
 

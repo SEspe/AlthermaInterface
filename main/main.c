@@ -24,6 +24,7 @@
 #include "compressor_power.h"
 #include "converters.h"
 #include "derived.h"
+#include "display.h"
 #include "mqtt.h"
 #include "power.h"
 #include "settings.h"
@@ -154,6 +155,13 @@ void app_main(void)
     // CPU frequency first, before the radio comes up. A rejected power level is
     // logged and ignored rather than fatal - see power.c.
     alt_power_apply_cpu(alt_settings_power_level());
+
+    // Before WiFi, so the panel says something during the 30 s connect wait
+    // rather than staying blank and looking dead. Does nothing when no display
+    // is fitted; the probe costs one I2C transaction.
+    if (alt_display_init()) {
+        alt_display_banner("AlthermaInterface", "v" FIRMWARE_VERSION);
+    }
 
     // WiFi and MQTT come up alongside the poll loop, not before it: the heat
     // pump is the point, and a broker that is down must not stop us reading and

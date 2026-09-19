@@ -20,6 +20,39 @@ the code, the version bump in `main/version.h`, and an entry here land together.
 
 ---
 
+- v1.22 — **Onboard OLED status page (firmware 1.13.0), §3.3.** The Lolin ESP32
+  boards this runs on carry a 128×64 SSD1306. It now shows the IP, compressor
+  state and source, inlet and outlet water, and the DHW tank — the values you
+  want standing at the machine with no phone in hand. Output only; the firmware
+  stays publish-only and nothing on screen changes what is polled or sent.
+
+  **Detected, not configured.** `alt_display_init()` probes 0x3C once at boot
+  and disables itself silently if nothing answers, so one binary serves a board
+  with a panel and a plain WROOM devkit without one. A settings flag would have
+  been one more thing to get wrong for no gain.
+
+  **The pin map was established empirically, and it mattered.** A sweep of the
+  pairs that boards with onboard OLEDs use found the panel at **SDA=GPIO5,
+  SCL=GPIO4** — the Lolin map, clear of X10A on 15/16. Had it been the
+  Heltec/TTGO variant instead, the panel's RESET sits on **GPIO16**, which is
+  this project's X10A RX, and the display and the heat pump link could not have
+  coexisted without rewiring. That is not a fact to take from a datasheet: three
+  board families share the "ESP32 with OLED" description and disagree on every
+  pin.
+
+  **Two diagnostic lessons, both expensive.** First, the initial dev board's
+  panel is dead in a way that looks alive: its controller ACKs every I²C write,
+  including charge-pump-on and display-on, while the glass never lights — not
+  even for `0xA5`, which lights all pixels from the controller with no RAM
+  involved. A successful I²C transaction proves nothing about pixels. Second,
+  an I²C probe reports success whenever SDA is pulled low in the ACK slot, so a
+  bus stuck low ACKs *every* address and is indistinguishable from a device
+  unless the whole range is scanned. Scan the range and check both lines idle
+  high before trusting any hit.
+
+  Rendering is verified against a known-good panel: init sequence, 5×7 font,
+  horizontal-addressing flush and the page layout, all as shipped.
+
 - v1.21 — **The PowerMeter host field accepts a URL (firmware 1.12.2), §8.**
   The field is labelled "PowerMeter host or IP" and the first thing typed into
   it was `http://192.168.10.238/` — which is what a browser puts on the
