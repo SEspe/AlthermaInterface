@@ -20,6 +20,22 @@ the code, the version bump in `main/version.h`, and an entry here land together.
 
 ---
 
+- v1.23 — **The OLED actually redraws (firmware 1.13.1), §3.3.** 1.13.0 brought
+  the panel up, drew the boot banner and then never touched it again:
+  `alt_display_update()` was written, specified and documented, but the call was
+  never added to the poll loop. The unit sat showing `AlthermaInterface v1.13.0`
+  indefinitely while publishing correct values over MQTT.
+
+  It is now called immediately after `alt_derived_update()`, so the screen shows
+  the evaluation that is about to be published rather than the previous one.
+
+  **Worth noting how it got through.** Every layer was verified except the one
+  that mattered: the driver was proven on a known-good panel, the firmware
+  compiled clean, the OTA succeeded and the device reported healthy. None of
+  that exercises the call site, because a status page that never updates looks
+  exactly like a working one until the values move. The spec said "redrawn once
+  per query cycle" and was simply not true of the code.
+
 - v1.22 — **Onboard OLED status page (firmware 1.13.0), §3.3.** The Lolin ESP32
   boards this runs on carry a 128×64 SSD1306. It now shows the IP, compressor
   state and source, inlet and outlet water, and the DHW tank — the values you

@@ -247,6 +247,12 @@ void app_main(void)
         // MQTT report one evaluation rather than two made moments apart.
         alt_derived_update();
 
+        // Immediately after, for the same reason: the panel must show the
+        // evaluation that is about to be published, not the previous one.
+        // Drawn during a burst too - publishing is suppressed there, but the
+        // screen is local and 1 Hz updates cost nothing off-device.
+        alt_display_update();
+
         if (bursting) {
             alt_burst_record();
         } else {
