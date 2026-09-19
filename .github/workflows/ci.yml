@@ -45,7 +45,8 @@ jobs:
           fail=0
           for f in $(git ls-files '*.md'); do
             case "$f" in
-              README.md|FSD_AlthermaInterface.md|docs/*.md) ;;
+              README.md|FSD_AlthermaInterface.md) ;;
+              FSD_AlthermaInterface_CHANGELOG.md|docs/*.md) ;;
               *) echo "::error file=$f::not in the published document set - if this is a local working note it should not be tracked"
                  fail=1 ;;
             esac
