@@ -38,6 +38,14 @@ static const char *TAG = "comp_pwr";
 // endpoint we think it is.
 #define RESP_MAX        2048
 
+// Counters and the last failure reason, for the Debug tab. Written only by the
+// poll task and read without a lock: each is a single word, the reader wants a
+// snapshot rather than a consistent set, and a torn count is worth less than
+// the lock would cost on the polling path.
+static uint32_t     s_polls, s_ok, s_fail;
+static alt_cp_err_t s_last_err = ALT_CP_ERR_DISABLED;
+static int          s_http_status;
+
 static alt_cp_state_t s_state = ALT_CP_UNKNOWN;
 static float          s_amps;
 static int64_t        s_last_us;      // 0 = never read
@@ -93,24 +101,32 @@ static bool fetch_amps(float *out)
     bool ok = false;
     char *body = NULL;
 
+    s_http_status = 0;
+
     esp_err_t err = esp_http_client_open(c, 0);
     if (err != ESP_OK) {
         ESP_LOGD(TAG, "open %s: %s", url, esp_err_to_name(err));
+        s_last_err = ALT_CP_ERR_CONNECT;
         goto done;
     }
     if (esp_http_client_fetch_headers(c) < 0) {
+        s_last_err = ALT_CP_ERR_CONNECT;
         goto done;
     }
-    if (esp_http_client_get_status_code(c) != 200) {
+    s_http_status = esp_http_client_get_status_code(c);
+    if (s_http_status != 200) {
+        s_last_err = ALT_CP_ERR_HTTP;
         goto done;
     }
 
     body = malloc(RESP_MAX);
     if (!body) {
+        s_last_err = ALT_CP_ERR_EMPTY;
         goto done;
     }
     int n = esp_http_client_read_response(c, body, RESP_MAX - 1);
     if (n <= 0) {
+        s_last_err = ALT_CP_ERR_EMPTY;
         goto done;
     }
     body[n] = '\0';
@@ -119,6 +135,7 @@ static bool fetch_amps(float *out)
     if (!ok) {
         ESP_LOGW(TAG, "channel \"%s\" not found in response",
                  alt_settings_pm_channel());
+        s_last_err = ALT_CP_ERR_CHANNEL;
     }
 
 done:
@@ -137,7 +154,15 @@ static void poll_task(void *arg)
 
     while (true) {
         float a = 0.0f;
-        if (fetch_amps(&a) && a >= 0.0f && a <= MAX_PLAUSIBLE_A) {
+        s_polls++;
+        bool got = fetch_amps(&a);
+        if (got && (a < 0.0f || a > MAX_PLAUSIBLE_A)) {
+            s_last_err = ALT_CP_ERR_IMPLAUSIBLE;
+            got = false;
+        }
+        if (got) {
+            s_ok++;
+            s_last_err = ALT_CP_ERR_NONE;
             s_amps = a;
             s_last_us = esp_timer_get_time();
             s_on = s_on ? (a >= alt_settings_pm_off_amps())
@@ -154,16 +179,19 @@ static void poll_task(void *arg)
                     xTaskNotifyGive(s_waiter);
                 }
             }
-        } else if (s_last_us != 0 &&
-                   (esp_timer_get_time() - s_last_us) > (int64_t)STALE_S * 1000000) {
-            // Do not keep publishing the last known state indefinitely. Going
-            // UNKNOWN hands the decision back to the water delta, which is
-            // always available.
-            if (s_state != ALT_CP_UNKNOWN) {
-                ESP_LOGW(TAG, "no reading for %d s, falling back to the water delta",
-                         STALE_S);
+        } else {
+            s_fail++;
+            if (s_last_us != 0 &&
+                (esp_timer_get_time() - s_last_us) > (int64_t)STALE_S * 1000000) {
+                // Do not keep publishing the last known state indefinitely.
+                // Going UNKNOWN hands the decision back to the water delta,
+                // which is always available.
+                if (s_state != ALT_CP_UNKNOWN) {
+                    ESP_LOGW(TAG, "no reading for %d s, falling back to the water delta",
+                             STALE_S);
+                }
+                s_state = ALT_CP_UNKNOWN;
             }
-            s_state = ALT_CP_UNKNOWN;
         }
         vTaskDelay(pdMS_TO_TICKS(POLL_MS));
     }
@@ -206,4 +234,35 @@ bool alt_compressor_power_reading(float *amps, int *age_s)
     if (amps)  *amps  = s_amps;
     if (age_s) *age_s = (int)((esp_timer_get_time() - s_last_us) / 1000000);
     return true;
+}
+
+const char *alt_compressor_power_err_name(alt_cp_err_t e)
+{
+    switch (e) {
+    case ALT_CP_ERR_NONE:        return "ok";
+    case ALT_CP_ERR_DISABLED:    return "no host configured";
+    case ALT_CP_ERR_CONNECT:     return "unreachable";
+    case ALT_CP_ERR_HTTP:        return "bad HTTP status";
+    case ALT_CP_ERR_EMPTY:       return "empty response";
+    case ALT_CP_ERR_CHANNEL:     return "channel not found";
+    case ALT_CP_ERR_IMPLAUSIBLE: return "reading out of range";
+    }
+    return "?";
+}
+
+void alt_compressor_power_stats(alt_cp_stats_t *out)
+{
+    if (!out) {
+        return;
+    }
+    out->enabled     = strlen(alt_settings_pm_host()) > 0;
+    out->state       = alt_compressor_power_state();
+    out->amps        = s_amps;
+    out->age_s       = s_last_us ? (int)((esp_timer_get_time() - s_last_us) / 1000000)
+                                 : -1;
+    out->polls       = s_polls;
+    out->ok          = s_ok;
+    out->fail        = s_fail;
+    out->last_err    = s_last_err;
+    out->http_status = s_http_status;
 }

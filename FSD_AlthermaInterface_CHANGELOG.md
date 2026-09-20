@@ -20,6 +20,32 @@ the code, the version bump in `main/version.h`, and an entry here land together.
 
 ---
 
+- v1.24 — **Compressor probe status on the Debug tab (firmware 1.14.0), §10.**
+  The PowerMeter connection had no visible state anywhere. Host, channel, last
+  reading and its age, thresholds, poll/ok/fail counts, the reason the last poll
+  failed, the last HTTP status, and which source actually decided the published
+  compressor state are now all on the Debug tab, with the same fields added to
+  `/api/status`.
+
+  **The reason this was needed is that the fallback is silent by design.** When
+  the probe cannot be trusted, `derived.c` drops back to the water delta and the
+  compressor sensor keeps working — which is correct behaviour, and exactly why
+  nothing on the device revealed that the timing had reverted to a source
+  measured 39–40 s late on every edge. A working sensor is not evidence of a
+  working probe.
+
+  **The failure reasons are enumerated rather than lumped into a flag**
+  (`unreachable`, `bad HTTP status`, `empty response`, `channel not found`,
+  `reading out of range`) because they are indistinguishable from the sensor and
+  need completely different fixes. The case that motivated it: a mistyped
+  channel label answers **HTTP 200** and parses fine — only the label lookup
+  fails. Against a single "not working" flag that is impossible to tell from a
+  node being down, and the wrong thing gets investigated.
+
+  The counters are written by the poll task and read without a lock. Each is a
+  single word, the reader wants a snapshot rather than a consistent set, and a
+  torn count is worth less than a lock on the polling path would cost.
+
 - v1.23 — **The OLED actually redraws (firmware 1.13.1), §3.3.** 1.13.0 brought
   the panel up, drew the boot banner and then never touched it again:
   `alt_display_update()` was written, specified and documented, but the call was

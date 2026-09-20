@@ -1,7 +1,7 @@
 # FSD — AlthermaInterface
 
-**Version:** 1.23
-**Firmware:** 1.13.1
+**Version:** 1.24
+**Firmware:** 1.14.0
 **Target:** ESP32 (ESP32-WROOM devkit, 4 MB flash), ESP-IDF v6.0.1
 **Heat pump:** Daikin Altherma LT split hydrobox **EKHBH / EKHBX 008BA** —
 **protocol S**, ROTEX value mapping
@@ -280,8 +280,22 @@ Served by the device itself on port 80 (`main/web_server.c`), four tabs:
 
 - **Daikin Data** — every label that has been read at least once, with its
   registry and current value; refreshes every 5 s.
-- **WiFi** — SSID, IP, RSSI, channel, BSSID, link and broker state, free heap,
-  uptime, firmware version.
+- **Debug** — X10A link diagnostics per registry, WiFi, MQTT counters, device
+  and ESP32 internals, and the **compressor probe** (below).
+
+  The probe block reports whether a PowerMeter host is configured, the host and
+  channel, the state that source currently gives, the last reading with its
+  age, the configured thresholds, poll/ok/fail counts, the reason the last poll
+  failed, the last HTTP status, and — separately — **which source actually
+  decided the published compressor state**.
+
+  It exists because **the fallback to the water delta is silent by design**.
+  The compressor sensor keeps working when the probe fails, so nothing else on
+  the device shows that the timing has quietly reverted to a source measured
+  40 s late on every edge. The distinct failure reasons matter for the same
+  reason: an unreachable node, a node answering with a non-200 status, and a
+  mistyped channel label are indistinguishable from the sensor, need entirely
+  different fixes, and are told apart here.
 - **Config** — MQTT broker URI, username, password. Saving persists to NVS and
   reboots, because settings are read once at start-up and a restart is the one
   path guaranteed to be consistent.

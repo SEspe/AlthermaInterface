@@ -28,6 +28,7 @@
 #include "althermaserial.h"
 #include "burst.h"
 #include "converters.h"
+#include "compressor_power.h"
 #include "derived.h"
 #include "mqtt.h"
 #include "esp_chip_info.h"
@@ -117,6 +118,22 @@ static const char PAGE[] =
 "<table id='wifi'></table>"
 "<h3 style='font-size:13px;color:#8b93a1;font-weight:500;margin:26px 0 8px'>MQTT</h3>"
 "<table id='mq'></table>"
+"<h3 style='font-size:13px;color:#8b93a1;font-weight:500;margin:26px 0 8px'>"
+"COMPRESSOR PROBE</h3>"
+"<table id='pm'></table>"
+"<p class='hint' id='pmh2'></p>"
+"<p class='hint'>The probe reads the OUTDOOR unit's supply current from a "
+"PowerMeter node over HTTP. It is a second source, not a replacement: when it "
+"cannot be trusted the compressor state falls back to the water temperatures, "
+"which are always available. <b>That fallback is silent by design</b> &mdash; "
+"the sensor keeps working, so this table is the only place a broken probe "
+"shows up. <b>Source</b> says which one actually decided the state just now.</p>"
+"<p class='hint'><b>Failures are normal in small numbers.</b> A missed poll "
+"costs nothing; the reading is only refused once it is older than 20 s. What "
+"matters is the trend &mdash; a failure count climbing with every refresh, or "
+"an age that keeps growing, means the source is gone and the timing has "
+"quietly reverted to the water delta, which is about 40 s late on every "
+"edge.</p>"
 "<h3 style='font-size:13px;color:#8b93a1;font-weight:500;margin:26px 0 8px'>DEVICE</h3>"
 "<table id='dev'></table>"
 "<h3 style='font-size:13px;color:#8b93a1;font-weight:500;margin:26px 0 8px'>"
@@ -334,7 +351,7 @@ static const char PAGE[] =
 "row('Messages published',s.pubOk)+row('Publish failures',s.pubFail)+"
 "row('Connects',s.connects)+row('Disconnects',s.disconnects)+"
 "row('Last publish',s.lastPub<0?'never':s.lastPub+' s ago');"
-"document.getElementById('dev').innerHTML="
+"var pmr;""if(!s.pmOn){pmr=row('Status','disabled - no PowerMeter host configured');}""else{""var rd=s.pmAge<0?'never read':s.pmAmps.toFixed(2)+' A, '+s.pmAge+' s ago';""var st=s.pmState==='unknown'?'unknown - falling back':s.pmState;""pmr=row('Status',s.pmErr==='ok'?'ok':s.pmErr)+""row('Host',s.pmHost)+row('Channel',s.pmChan)+""row('Compressor (this source)',st)+""row('Last reading',rd)+""row('Thresholds','on at or above '+s.pmOnA.toFixed(2)+' A, off below '+s.pmOffA.toFixed(2)+' A')+""row('Polls',s.pmPolls+' ('+s.pmOk+' ok, '+s.pmFail+' failed)')+""row('Last HTTP status',s.pmHttp?s.pmHttp:'-');""}""pmr+=row('Source in use now',s.compSrc||'-');""document.getElementById('pm').innerHTML=pmr;""document.getElementById('pmh2').textContent=""!s.pmOn?'':""(s.compSrc==='delta'&&s.pmOn?""'The probe is configured but the water delta is deciding the state right now.':'');""document.getElementById('dev').innerHTML="
 "row('Firmware','v'+s.version)+row('OTA slot',s.partition)+"
 "row('Reset reason',s.resetReason)+row('Free heap',s.heap+' bytes')+"
 "row('Uptime',s.uptime+' s')+row('X10A protocol',s.protocol)+"
@@ -564,7 +581,12 @@ static esp_err_t status_get(httpd_req_t *req)
     int64_t last_pub = 0;
     alt_mqtt_stats(&pub_ok, &pub_fail, &connects, &disconnects, &last_pub);
 
-    char body[1024];
+    alt_cp_stats_t pm;
+    alt_compressor_power_stats(&pm);
+
+    // 1024 was already close with the fields above; the probe block adds about
+    // 200 bytes, and a silently truncated status page is a bad way to find out.
+    char body[1536];
     snprintf(body, sizeof(body),
              "{\"version\":\"%s\",\"ssid\":\"%s\",\"ip\":\"%s\",\"rssi\":%d,"
              "\"channel\":%d,\"bssid\":\"%s\",\"wifi\":%s,\"mqtt\":%s,"
@@ -573,7 +595,12 @@ static esp_err_t status_get(httpd_req_t *req)
              "\"rxPin\":%d,\"txPin\":%d,\"pubOk\":%u,\"pubFail\":%u,"
              "\"connects\":%u,\"disconnects\":%u,\"lastPub\":%lld,"
              "\"power\":\"%s\",\"cpuMhz\":%d,\"txDbm\":%.2f,\"interval\":%d,"
-             "\"minHeap\":%u,\"maxBlock\":%u,\"tasks\":%u}",
+             "\"minHeap\":%u,\"maxBlock\":%u,\"tasks\":%u,"
+             "\"pmOn\":%s,\"pmHost\":\"%s\",\"pmChan\":\"%s\","
+             "\"pmState\":\"%s\",\"pmAmps\":%.2f,\"pmAge\":%d,"
+             "\"pmPolls\":%u,\"pmOk\":%u,\"pmFail\":%u,"
+             "\"pmErr\":\"%s\",\"pmHttp\":%d,"
+             "\"pmOnA\":%.2f,\"pmOffA\":%.2f,\"compSrc\":\"%s\"}",
              FIRMWARE_VERSION, alt_wifi_ssid(), ip, alt_wifi_rssi(),
              alt_wifi_channel(), bssid,
              alt_wifi_is_connected() ? "true" : "false",
@@ -593,7 +620,16 @@ static esp_err_t status_get(httpd_req_t *req)
              alt_settings_poll_interval_s(),
              (unsigned)esp_get_minimum_free_heap_size(),
              (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT),
-             (unsigned)uxTaskGetNumberOfTasks());
+             (unsigned)uxTaskGetNumberOfTasks(),
+             pm.enabled ? "true" : "false",
+             alt_settings_pm_host(), alt_settings_pm_channel(),
+             pm.state == ALT_CP_ON  ? "ON"  :
+             pm.state == ALT_CP_OFF ? "OFF" : "unknown",
+             pm.amps, pm.age_s,
+             (unsigned)pm.polls, (unsigned)pm.ok, (unsigned)pm.fail,
+             alt_compressor_power_err_name(pm.last_err), pm.http_status,
+             alt_settings_pm_on_amps(), alt_settings_pm_off_amps(),
+             alt_derived_compressor_source());
 
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_send(req, body, HTTPD_RESP_USE_STRLEN);
