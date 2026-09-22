@@ -46,14 +46,20 @@ param(
     # PowerMeter nodes (sibling project), /api/values. Each channel is
     # flattened to "<label>.i" amps and "<label>.p" watts.
     #
-    #   .231 "PowerMeterIndoorUnit"  - indoor unit, pump and controls
-    #   .238 "PowerMeterOutdoorUnit" - the compressor, on L2-L3
+    #   .41 "PowerMeterIndoorUnit"  - indoor unit, pump and controls
+    #   .42 "PowerMeterOutdoorUnit" - the compressor, on L2-L3
+    #
+    # These moved from .231/.238 on 2026-09-20 and the old addresses sat here
+    # unnoticed, so the capture logged UNREACHABLE for both for most of a day -
+    # no outdoor current, no booster kWh, and the compressor-timing comparison
+    # the run existed for lost its electrical side. The device's own probe was
+    # repointed at the time; this file was not. Check both when a node moves.
     #
     # Amps are the honest quantity. The watts are `V x I` with power factor
     # ASSUMED to be 1, and the compressor's measured PF runs 0.60 at minimum
     # modulation to 0.91 at full load - so those watts overstate real power by
     # up to 67 %. Use them for detecting state, never for energy.
-    [string[]]$PowerMeter = @("192.168.10.231", "192.168.10.238"),
+    [string[]]$PowerMeter = @("192.168.10.41", "192.168.10.42"),
     # AMS house meter. Gives TRUE active power for the whole installation, so
     # it is the sanity check on everything above: no sub-meter may exceed it.
     # That test caught a stuck outdoor CT reading 874 W against a 778 W house.
