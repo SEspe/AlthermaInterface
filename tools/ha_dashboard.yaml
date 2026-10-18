@@ -1,0 +1,83 @@
+# Heat pump performance dashboard for Home Assistant.
+#
+# To add it: Settings > Dashboards > Add dashboard (name it "Heat pump"),
+# open it, then the three-dot menu > Edit > three-dot menu > Raw configuration
+# editor, and paste this file over the existing content.
+#
+# Uses the entities already in HA: the Daikin via ESPAltherma sensors, the
+# DS18B20 living room sensor (sensor.tempstue) and the AMS house meter.
+# The history-graph cards show raw state changes, the same data as
+# tools/ha_baseline.py.
+
+title: Heat pump
+views:
+  - title: Performance
+    path: performance
+    cards:
+      - type: entities
+        title: Now
+        entities:
+          - entity: binary_sensor.espaltherma_compressor
+            name: Compressor
+          - entity: sensor.espaltherma_outlet_water_tempc
+            name: Outlet water
+          - entity: sensor.espaltherma_inlet_water_tempc
+            name: Inlet water
+          - entity: sensor.espaltherma_dhw_tank_tempc
+            name: DHW tank
+          - entity: sensor.tempute
+            name: Outdoor (unit sensor)
+          - entity: sensor.tempstue
+            name: Living room (DS18B20)
+          - entity: sensor.compressor_starts_today
+            name: Starts today
+          - entity: sensor.compressor_duty_cycle_today
+            name: Duty today
+
+      - type: history-graph
+        title: Compressor, booster and DHW (last 48 h)
+        hours_to_show: 48
+        entities:
+          - entity: binary_sensor.espaltherma_compressor
+            name: Compressor
+          - entity: binary_sensor.espaltherma_electric_heater_contactor
+            name: Booster
+          - entity: binary_sensor.espaltherma_priority_to_domestic_water
+            name: DHW priority
+
+      - type: history-graph
+        title: Water temperatures (last 48 h)
+        hours_to_show: 48
+        entities:
+          - entity: sensor.espaltherma_outlet_water_tempc
+            name: Outlet
+          - entity: sensor.espaltherma_inlet_water_tempc
+            name: Inlet
+          - entity: sensor.espaltherma_dhw_tank_tempc
+            name: DHW tank
+
+      - type: history-graph
+        title: Outdoor and living room (last 7 days)
+        hours_to_show: 168
+        entities:
+          - entity: sensor.tempute
+            name: Outdoor (unit sensor)
+          - entity: sensor.tempstue
+            name: Living room (DS18B20)
+
+      - type: history-graph
+        title: Starts per day (last 7 days)
+        hours_to_show: 168
+        entities:
+          - entity: sensor.compressor_starts_today
+            name: Starts today
+
+      - type: statistics-graph
+        title: House energy per day (kWh, last 30 days)
+        entities:
+          - sensor.ams_cf58_tpi
+        period: day
+        days_to_show: 30
+        stat_types:
+          - change
+        chart_type: bar
