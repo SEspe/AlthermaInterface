@@ -19,8 +19,7 @@
   <!-- DHW coil: supply up from the 3-way valve, return down to the indoor unit -->
   <path d="M312 245 V150" stroke="#c0392b" stroke-width="3" fill="none"/>
   <!-- DHW return joins the common return at the junction: after 11 and 13, before 3 and 6 -->
-  <path d="M246 160 V380 H292" stroke="#2471a3" stroke-width="3" fill="none"/>
-  <polygon points="246,212 242,202 250,202" fill="#2471a3"/>
+  <path d="M232 100 H70 V400 H292 V380" stroke="#2471a3" stroke-width="3" fill="none"/>
 
   <!-- Indoor unit -->
   <rect x="222" y="210" width="120" height="130" rx="6" fill="#e6f4ef" stroke="#2e7d6b"/>
