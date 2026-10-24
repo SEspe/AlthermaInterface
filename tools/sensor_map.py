@@ -25,7 +25,7 @@ SENSORS = {
     "outlet": {"entity": "sensor.espaltherma_outlet_water_tempc",
                "location": "heat pump water outlet", "source": "X10A"},
     "dhw": {"entity": "sensor.espaltherma_dhw_tank_tempc",
-            "location": "DHW tank", "source": "X10A"},
+            "location": "DHW return line, from tank", "source": "X10A"},
     "turmaskin": {"entity": "sensor.turmaskin",
                   "location": "heat pump flow, next to outlet", "source": "ESPEasy .160"},
     "returmaskin": {"entity": "sensor.returmaskin",
