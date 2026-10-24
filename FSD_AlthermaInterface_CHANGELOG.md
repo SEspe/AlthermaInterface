@@ -20,6 +20,13 @@ the code, the version bump in `main/version.h`, and an entry here land together.
 
 ---
 
+- v1.25 — **Starts-per-hour reference (firmware 1.14.0), §6.** Added a 2–6
+  starts-per-hour band as a monitoring reference, not a firmware behaviour. It
+  comes from trade guidance cited in the project notes, which the notes already
+  used to judge every cycling change, but it was never written into the spec, so
+  the judgement had no stated basis. `tools/ha_baseline.py` now flags values
+  outside the band. Documentation and analysis tooling only: no firmware change,
+  so `main/version.h` stays at 1.14.0.
 - v1.24 — **Compressor probe status on the Debug tab (firmware 1.14.0), §10.**
   The PowerMeter connection had no visible state anywhere. Host, channel, last
   reading and its age, thresholds, poll/ok/fail counts, the reason the last poll

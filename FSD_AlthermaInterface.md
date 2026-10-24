@@ -1,6 +1,6 @@
 # FSD — AlthermaInterface
 
-**Version:** 1.24
+**Version:** 1.25
 **Firmware:** 1.14.0
 **Target:** ESP32 (ESP32-WROOM devkit, 4 MB flash), ESP-IDF v6.0.1
 **Heat pump:** Daikin Altherma LT split hydrobox **EKHBH / EKHBX 008BA** —
@@ -236,6 +236,17 @@ describes. Because offsets alone would silently mean something else under a
 different definition file, each label is checked once as a **guard**: a mismatch
 disables the sensor with an error in the log rather than publishing a confident
 lie.
+
+### Cycling reference (monitoring, not enforced)
+
+The firmware does not limit, alarm on or act on compressor cycling. Analysis
+tools use this reference to judge a period:
+
+- **Starts per hour: 2 to 6.** A start is an OFF-to-ON transition of the derived
+  compressor state, averaged over a whole day or longer. Values outside the band
+  are flagged in the analysis output, not treated as faults.
+- The source is installer trade guidance as cited in the project notes. It has
+  not been checked against a manufacturer document.
 
 ## 7. MQTT
 

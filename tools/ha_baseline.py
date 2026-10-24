@@ -51,6 +51,7 @@ ENT = {
     "ams": "sensor.ams_cf58_tpi",
 }
 KW_BOOSTER = 2.83
+STARTS_PER_HOUR_BAND = (2.0, 6.0)  # FSD §6, monitoring reference only
 DISINFECT_MIN_MINUTES = 50
 DISINFECT_TANK_C = 55.0
 
@@ -197,7 +198,12 @@ def markdown(res):
     for k in ["starts_per_day", "starts_per_hour", "duty_pct", "median_run_min", "median_off_min",
               "booster_min_per_day", "booster_kwh_per_day", "disinfection_cycles",
               "outdoor_mean_c", "room_mean_c", "ams_kwh_per_day"]:
-        lines.append(f"- {k}: {res[k]}")
+        line = f"- {k}: {res[k]}"
+        if k == "starts_per_hour":
+            lo, hi = STARTS_PER_HOUR_BAND
+            verdict = "inside" if lo <= res[k] <= hi else "OUTSIDE"
+            line += f" ({verdict} the {lo:g}-{hi:g}/h reference, FSD §6)"
+        lines.append(line)
     lines += ["", "Outlet p90 by outdoor band (compressing, no DHW, no booster):"]
     for band, v in res["outlet_p90_by_band"].items():
         lines.append(f"- {band} C: {v}")
