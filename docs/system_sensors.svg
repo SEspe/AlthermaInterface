@@ -96,6 +96,8 @@
     <circle cx="342" cy="226" r="10" fill="#d6f0e0" stroke="#1e7a4a"/><text x="342" y="230">4</text>
     <circle cx="350" cy="272" r="10" fill="#d6e6f6" stroke="#1f5fa0"/><text x="350" y="276">5</text>
     <circle cx="340" cy="458" r="10" fill="#d6e6f6" stroke="#1f5fa0"/><text x="340" y="462">6</text>
+    <circle cx="202" cy="236" r="10" fill="#d6e6f6" stroke="#1f5fa0"/><text x="202" y="240" font-size="9">7a</text>
+    <circle cx="202" cy="308" r="10" fill="#d6e6f6" stroke="#1f5fa0"/><text x="202" y="312" font-size="9">7b</text>
     <circle cx="262" cy="170" r="10" fill="#d6f0e0" stroke="#1e7a4a"/><text x="262" y="174">8</text>
     <circle cx="372" cy="250" r="10" fill="#fff6d6" stroke="#b08900"/><text x="372" y="254">9</text>
     <circle cx="486" cy="190" r="10" fill="#fff6d6" stroke="#b08900"/><text x="486" y="194">10</text>
@@ -140,7 +142,7 @@
     <text x="30" y="710">6</text><text x="60" y="710">Heat pump return pipe (location to confirm)</text><text x="400" y="710">No, ESPEasy node .160</text><text x="680" y="710">sensor.returmaskin</text>
     <!-- row 7 -->
     <rect x="20" y="716" width="960" height="22" fill="#ffffff"/>
-    <text x="30" y="732">7</text><text x="60" y="732">Compressor flow and return (not placed)</text><text x="400" y="732">No, ESPEasy node .160</text><text x="680" y="732">sensor.turcompressor, sensor.returcompressor</text>
+    <text x="30" y="732">7</text><text x="60" y="732">Compressor: to (7a), return (7b)</text><text x="400" y="732">No, ESPEasy node .160 (confirm)</text><text x="680" y="732">sensor.turcompressor (7a), sensor.returcompressor (7b)</text>
     <!-- row 8 -->
     <rect x="20" y="738" width="960" height="22" fill="#f6f7f8"/>
     <text x="30" y="754">8</text><text x="60" y="754">DHW tank</text><text x="400" y="754">Yes, X10A</text><text x="680" y="754">sensor.espaltherma_dhw_tank_tempc</text>
