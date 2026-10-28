@@ -20,6 +20,14 @@ the code, the version bump in `main/version.h`, and an entry here land together.
 
 ---
 
+- v1.26 — **Analysis material moved out of this repository (firmware 1.14.0).** The
+  installation diagram, the Home Assistant and DHW analysis tools, the session
+  notes and the raw captures now live in a private repository,
+  `VK24ALthermaHeatingSystem`, so this public repository carries only the
+  firmware and the documents it needs to build and verify. The one sentence
+  that named `captures/` now says where the evidence is held. History is not
+  rewritten: the moved files remain in this repository's earlier commits. No
+  firmware change, so `main/version.h` stays at 1.14.0.
 - v1.25 — **Starts-per-hour reference (firmware 1.14.0), §6.** Added a 2–6
   starts-per-hour band as a monitoring reference, not a firmware behaviour. It
   comes from trade guidance cited in the project notes, which the notes already

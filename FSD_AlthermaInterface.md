@@ -1,6 +1,6 @@
 # FSD — AlthermaInterface
 
-**Version:** 1.25
+**Version:** 1.26
 **Firmware:** 1.14.0
 **Target:** ESP32 (ESP32-WROOM devkit, 4 MB flash), ESP-IDF v6.0.1
 **Heat pump:** Daikin Altherma LT split hydrobox **EKHBH / EKHBX 008BA** —
@@ -212,8 +212,9 @@ on every edge, so a record made under one is not directly comparable with a
 record made under the other; a silent fallback would make the history look
 consistent when it is not.
 
-The fallback rule rests on three captures in `captures/` — a forced DHW cycle, an
-overnight run and a space-heating run. With the pump circulating, the water
+The fallback rule rests on three captures recorded at commissioning, held in the
+project's private analysis repository — a forced DHW cycle, an overnight run and
+a space-heating run. With the pump circulating, the water
 delta is sharply **bimodal**: 0.1–0.9 K with the compressor idle, 3–7 K with it
 running, and 8 of 426 pump-on samples anywhere between 1 and 3 K, all of them
 mid-transition. The refrigerant liquid side agrees independently — about 5–6 K
