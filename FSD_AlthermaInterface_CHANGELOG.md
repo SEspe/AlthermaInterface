@@ -20,6 +20,7 @@ the code, the version bump in `main/version.h`, and an entry here land together.
 
 ---
 
+- v1.27 — **Release and OTA dry run (firmware 1.14.1), no spec section.** A version-only change to exercise the release and over-the-air update path end to end. No behaviour changed, so no section of the specification is affected. `main/version.h` moves to 1.14.1 and the FSD header to 1.27 and 1.14.1, so the CI version check stays green.
 - v1.26 — **Analysis material moved out of this repository (firmware 1.14.0).** The
   installation diagram, the Home Assistant and DHW analysis tools, the session
   notes and the raw captures now live in a private repository,
