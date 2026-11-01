@@ -46,7 +46,9 @@ LabelDef labelDefs[] = {
     {0x54, 6, 153, 2, HA_TEMPERATURE, "Unknown 0x54 offset 6(C)"},
     {0x54, 8, 153, 2, HA_TEMPERATURE, "DHW tank temp.(C)"},
     {0x54, 10, 103, 2, HA_TEMPERATURE, "Unknown 0x54 offset 10(C)"},
-    {0x54, 12, 101, 1, -1, "Delta-Tr(deg)"},
+    // Assumed to be the weather-dependent leaving-water target (upstream calls
+    // it Delta-Tr). Matches the display set point in curve mode; see FSD §7.
+    {0x54, 12, 101, 1, HA_TEMPERATURE, "Curve setpoint (C)"},
     {0x54, 13, 151, 1, -1, "R-C Setpoint(C)"},
 
     // ---- 0x55: status (upstream ROTEX mapping) ----

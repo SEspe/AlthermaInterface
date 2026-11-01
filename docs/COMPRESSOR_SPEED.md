@@ -28,7 +28,7 @@ samples from the cycle logs (86 with the compressor on):
 |---|---|
 | `Unknown 0x56` | constant 48.004 |
 | `Unknown 0x54` offset 10 | constant 0.004 |
-| `Delta-Tr` (`0x54` offset 12) | constant 33 |
+| `Delta-Tr` (`0x54` offset 12) | constant 33 until about 20 Sep, then 30–42 (curve setpoint, published as "Curve setpoint (C)") |
 | `Unknown 0x54` offset 6 | moves with the compressor (mean 35.2 °C on, 31.6 °C off), so it is a temperature, not a speed |
 
 `0x5A` was already tested and excluded as a power or load signal (raw sensor

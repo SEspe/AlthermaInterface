@@ -1,7 +1,7 @@
 # FSD — AlthermaInterface
 
-**Version:** 1.29
-**Firmware:** 1.16.0
+**Version:** 1.30
+**Firmware:** 1.17.0
 **Target:** ESP32 (ESP32-WROOM devkit, 4 MB flash), ESP-IDF v6.0.1
 **Heat pump:** Daikin Altherma LT split hydrobox **EKHBH / EKHBX 008BA** —
 **protocol S**, ROTEX value mapping
@@ -256,6 +256,12 @@ Topics follow upstream so an existing Home Assistant setup keeps working:
 retained), `espaltherma/POWER` + `/STATE` (thermostat), `espaltherma/sg/set` +
 `/state`, `espaltherma/log`. Home Assistant discovery is published retained
 under `homeassistant/…` on each connect.
+
+The value at `0x54` offset 12 is published as **Curve setpoint (C)**, a
+temperature sensor in Home Assistant, so its history is recorded there. It is
+taken to be the weather-dependent leaving-water target: the unit's display
+shows the same figure in curve mode. The firmware does not write it or act on
+it.
 
 Deviation from upstream: TLS connections verify the broker via the IDF
 certificate bundle rather than `setInsecure()`.
