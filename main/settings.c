@@ -40,6 +40,7 @@ static const char *TAG = "settings";
 #define KEY_RX_PIN    "rx_pin"
 #define KEY_TX_PIN    "tx_pin"
 #define KEY_GH_REPO   "gh_repo"
+#define KEY_AS_NUMBER "as_number"
 #define KEY_WIFI_SSID "wifi_ssid"
 #define KEY_WIFI_PASS "wifi_pass"
 #define KEY_IP_MODE   "ip_mode"
@@ -68,6 +69,7 @@ static int  s_rx_pin = ALT_UART_RX_PIN;
 static int  s_tx_pin = ALT_UART_TX_PIN;
 // owner/name of the GitHub repo whose releases the device may flash from.
 static char s_gh_repo[ALT_SETTING_MAX] = ALT_GITHUB_REPO_DEFAULT;
+static char s_as_number[ALT_SETTING_MAX] = "";
 
 // Compressor power source. Disabled until a host is saved, so a device
 // that has never been told about a PowerMeter behaves exactly as before.
@@ -144,6 +146,7 @@ esp_err_t alt_settings_init(void)
     load_str(h, KEY_MQTT_USER, s_user, sizeof(s_user));
     load_str(h, KEY_MQTT_PASS, s_pass, sizeof(s_pass));
     load_str(h, KEY_GH_REPO,   s_gh_repo, sizeof(s_gh_repo));
+    load_str(h, KEY_AS_NUMBER, s_as_number, sizeof(s_as_number));
     load_str(h, KEY_WIFI_SSID, s_wifi_ssid, sizeof(s_wifi_ssid));
     load_str(h, KEY_WIFI_PASS, s_wifi_pass, sizeof(s_wifi_pass));
     load_str(h, KEY_IP_ADDR,   s_ip_addr, sizeof(s_ip_addr));
@@ -348,6 +351,28 @@ esp_err_t alt_settings_set_gh_repo(const char *repo)
         return err;
     }
     err = nvs_set_str(h, KEY_GH_REPO, s_gh_repo);
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
+    return err;
+}
+
+const char *alt_settings_as_number(void) { return s_as_number; }
+
+// Empty clears it. The text is stored as typed; alt_as_parse() decides whether
+// it is an AS number, so the Config tab can reject a bad one before saving.
+esp_err_t alt_settings_set_as_number(const char *as)
+{
+    if (!as) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    strlcpy(s_as_number, as, sizeof(s_as_number));
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = nvs_set_str(h, KEY_AS_NUMBER, s_as_number);
     if (err == ESP_OK) err = nvs_commit(h);
     nvs_close(h);
     return err;

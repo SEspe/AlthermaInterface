@@ -1,7 +1,7 @@
 # FSD — AlthermaInterface
 
-**Version:** 1.27
-**Firmware:** 1.14.1
+**Version:** 1.28
+**Firmware:** 1.15.0
 **Target:** ESP32 (ESP32-WROOM devkit, 4 MB flash), ESP-IDF v6.0.1
 **Heat pump:** Daikin Altherma LT split hydrobox **EKHBH / EKHBX 008BA** —
 **protocol S**, ROTEX value mapping
@@ -281,6 +281,22 @@ values depend on the machine's standby draw and its minimum modulation, neither
 of which this firmware can discover for itself. `POST /api/config` rejects a
 pair where the off threshold is not below the on threshold, since that is not
 hysteresis but a rule that can never settle.
+
+The **AS number** of the indoor unit is a typed-in setting, stored in NVS and
+edited on the Config tab under *Indoor unit*. The label reads for example
+`AS1709217-30 A`; the firmware accepts it with or without the space, the "AS"
+prefix and the dashes, and refuses a value it cannot parse (`POST /api/config`
+returns 400). An empty value clears it. The firmware never reads the AS number
+from the heat pump: register `0x63`, which upstream uses for it, does not answer
+on this unit.
+
+From the stored AS number the firmware derives the list of definition files it
+points to (`main/as_number.c`, table in `main/as_table.h`). The rule is the
+upstream one: an AS body and its suffix digits select the candidate models, and
+a suffix recorded as any-value matches every suffix. `GET /api/config` reports
+the stored value as `asNumber` and the candidates as `asModels`, and the Config
+tab lists them. The list is advisory: it names the variant, it does not change
+which definition the firmware uses, which is still chosen in `main/model_config.h`.
 
 Still compile-time, to be moved later: WiFi credentials (in `secrets.h`), poll
 frequency, output pin roles, and the model definition selection (see

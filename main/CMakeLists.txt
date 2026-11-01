@@ -13,6 +13,7 @@ idf_component_register(
         "derived.c"            # new: state inferred from the readings
         "compressor_power.c"   # new: compressor state from outdoor current
         "burst.c"              # new: bounded 1 Hz sampling window
+        "as_number.c"          # <- include/catalog.h (AS number decode, candidate models)
         "display.c"            # new: onboard SSD1306 status page (optional)
         "web_server.c"         # new: config UI, WiFi diag, values, OTA upload
         # "control.c"          # <- thermostat / smart grid / safety relay

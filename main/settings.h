@@ -65,6 +65,11 @@ esp_err_t alt_settings_set_ip(bool use_static, const char *addr, const char *gw,
 const char *alt_settings_gh_repo(void);
 esp_err_t alt_settings_set_gh_repo(const char *repo);
 
+// AS number of the indoor unit, as typed on the Config tab ("" when not set).
+// Decoded by as_number.h; the firmware never reads it from the heat pump.
+const char *alt_settings_as_number(void);
+esp_err_t alt_settings_set_as_number(const char *as);
+
 // ---- Compressor power source --------------------------------------------
 // Optional. A PowerMeter node measuring the OUTDOOR unit's supply gives a far
 // better compressor signal than the water delta can: the current steps within

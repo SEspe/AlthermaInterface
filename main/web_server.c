@@ -26,6 +26,7 @@
 #include "freertos/task.h"
 
 #include "althermaserial.h"
+#include "as_number.h"
 #include "burst.h"
 #include "converters.h"
 #include "compressor_power.h"
@@ -275,6 +276,11 @@ static const char PAGE[] =
 "clears.</p>"
 
 "<h3 style='font-size:13px;color:#8b93a1;font-weight:500;margin:26px 0 8px'>"
+"INDOOR UNIT</h3>"
+"<label>AS number (from the indoor unit label)</label><input id='asn' placeholder='AS1709217-30A'>"
+"<p class='hint' id='asm'></p>"
+
+"<h3 style='font-size:13px;color:#8b93a1;font-weight:500;margin:26px 0 8px'>"
 "FIRMWARE SOURCE</h3>"
 "<label>GitHub repository (owner/name)</label><input id='ghr'>"
 "<p class='hint'>Releases of this repository are the only images the device "
@@ -475,6 +481,8 @@ static const char PAGE[] =
 "pinopts(document.getElementById('rxp'),PINS.concat(PINS_IN),c.rxPin);"
 "pinopts(document.getElementById('txp'),PINS,c.txPin);pinchk();"
 "document.getElementById('ghr').value=c.repo;GH=c.repo;"
+"document.getElementById('asn').value=c.asNumber||'';"
+"document.getElementById('asm').textContent=c.asModels.length?'Models this AS number points to: '+c.asModels.join('; '):(c.asNumber?'No model matches this AS number.':'Not set: the model is picked by the firmware, not by the label.');"
 "document.getElementById('pmh').value=c.pmHost||'';"
 "document.getElementById('pmc').value=c.pmChannel||'';"
 "document.getElementById('pmon').value=c.pmOnAmps;"
@@ -535,6 +543,7 @@ static const char PAGE[] =
 "pass:document.getElementById('pwd').value,"
 "rxPin:document.getElementById('rxp').value,txPin:document.getElementById('txp').value,"
 "repo:document.getElementById('ghr').value,"
+"asNumber:document.getElementById('asn').value,"
 "pmHost:document.getElementById('pmh').value,"
 "pmChannel:document.getElementById('pmc').value,"
 "pmOnAmps:document.getElementById('pmon').value,"
@@ -804,20 +813,37 @@ static esp_err_t wificfg_post(httpd_req_t *req)
 
 static esp_err_t config_get(httpd_req_t *req)
 {
-    // Large enough for the three configured strings plus the power level table,
-    // whose descriptions are the longest part.
-    char body[1400];
+    // Large enough for the three configured strings, the AS number's candidate
+    // models and the power level table, whose descriptions are the longest part.
+    char body[2048];
+
+    // The AS number's candidates, as a JSON array of names. Empty when no AS
+    // number is stored or it does not parse.
+    char asModels[640] = "";
+    alt_as_number_t as;
+    if (alt_as_parse(alt_settings_as_number(), &as)) {
+        const char *names[8];
+        size_t count = alt_as_models(&as, names, 8);
+        size_t used = 0;
+        for (size_t i = 0; i < count && i < 8 && used < sizeof(asModels); i++) {
+            used += snprintf(asModels + used, sizeof(asModels) - used, "%s\"%s\"",
+                             i ? "," : "", names[i]);
+        }
+    }
+
     // The stored password is deliberately never sent to the browser; the UI
     // only learns whether one exists.
     int n = snprintf(body, sizeof(body),
              "{\"uri\":\"%s\",\"user\":\"%s\",\"passSet\":%s,"
              "\"rxPin\":%d,\"txPin\":%d,\"repo\":\"%s\","
+             "\"asNumber\":\"%s\",\"asModels\":[%s],"
              "\"pmHost\":\"%s\",\"pmChannel\":\"%s\","
              "\"pmOnAmps\":%.2f,\"pmOffAmps\":%.2f,"
              "\"powerLevel\":%d,\"powerLevels\":[",
              alt_settings_mqtt_uri(), alt_settings_mqtt_user(),
              alt_settings_mqtt_pass_set() ? "true" : "false",
              alt_settings_rx_pin(), alt_settings_tx_pin(), alt_settings_gh_repo(),
+             alt_settings_as_number(), asModels,
              alt_settings_pm_host(), alt_settings_pm_channel(),
              alt_settings_pm_on_amps(), alt_settings_pm_off_amps(),
              alt_settings_power_level());
@@ -959,6 +985,20 @@ static esp_err_t config_post(httpd_req_t *req)
     char repo[ALT_SETTING_MAX] = {0};
     if (json_field(body, "repo", repo, sizeof(repo)) && repo[0] != 0) {
         alt_settings_set_gh_repo(repo);
+    }
+
+    // The indoor unit's AS number, typed in. Present-but-empty clears it; a
+    // value that does not parse is refused rather than stored and silently
+    // ignored later.
+    char asnum[ALT_SETTING_MAX] = {0};
+    if (json_field(body, "asNumber", asnum, sizeof(asnum))) {
+        alt_as_number_t parsed;
+        if (asnum[0] != '\0' && !alt_as_parse(asnum, &parsed)) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
+                                "AS number not recognised, eg. AS1709217-30A");
+            return ESP_FAIL;
+        }
+        alt_settings_set_as_number(asnum);
     }
 
     // Compressor power source. An EMPTY pmHost is meaningful here and not
