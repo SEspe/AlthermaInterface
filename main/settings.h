@@ -82,6 +82,9 @@ esp_err_t alt_settings_set_as_number(const char *as);
 // machine's standby draw and its minimum modulation, neither of which is
 // knowable from here.
 const char *alt_settings_pm_host(void);     // "" = disabled
+// Indoor PowerMeter, shown on the Home page only ("" = not configured).
+const char *alt_settings_pm_indoor_host(void);
+esp_err_t alt_settings_set_pm_indoor_host(const char *host);
 const char *alt_settings_pm_channel(void);
 float alt_settings_pm_on_amps(void);
 float alt_settings_pm_off_amps(void);

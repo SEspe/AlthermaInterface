@@ -1,7 +1,7 @@
 # FSD — AlthermaInterface
 
-**Version:** 1.28
-**Firmware:** 1.15.0
+**Version:** 1.29
+**Firmware:** 1.16.0
 **Target:** ESP32 (ESP32-WROOM devkit, 4 MB flash), ESP-IDF v6.0.1
 **Heat pump:** Daikin Altherma LT split hydrobox **EKHBH / EKHBX 008BA** —
 **protocol S**, ROTEX value mapping
@@ -290,6 +290,10 @@ returns 400). An empty value clears it. The firmware never reads the AS number
 from the heat pump: register `0x63`, which upstream uses for it, does not answer
 on this unit.
 
+The **indoor PowerMeter** host is set the same way. It is for display only: the
+Home page shows its current and energy next to the outdoor meter's. It does not
+feed the compressor state, so it has no thresholds.
+
 From the stored AS number the firmware derives the list of definition files it
 points to (`main/as_number.c`, table in `main/as_table.h`). The rule is the
 upstream one: an AS body and its suffix digits select the candidate models, and
@@ -304,8 +308,21 @@ frequency, output pin roles, and the model definition selection (see
 
 ## 10. Web UI
 
-Served by the device itself on port 80 (`main/web_server.c`), four tabs:
+Served by the device itself on port 80 (`main/web_server.c`), five tabs:
 
+- **Home** — the first tab, refreshed every 5 s. A schematic of the heat pump:
+  the outdoor unit with its compressor state, the refrigerant and water
+  connections to the heat exchanger, the heating flow and return temperatures,
+  the DHW tank, and the mode, circulation pump and backup heater. Its positions
+  are simplified and say so. Below it, a row of cards (mode, compressor and its
+  source, outdoor current, MQTT state, uptime) and a current gauge on a 0 to 8 A
+  scale, with the compressor on and off thresholds marked. Then a **power**
+  table for the outdoor and indoor PowerMeters: current per phase channel, power,
+  and the meter's energy total. The meters are read through the device at
+  `GET /api/power`, because a browser cannot reach them directly. A meter that
+  is not configured or does not answer shows as not set. Energy is the meter's
+  running total since it was first powered; the page notes when a meter assumes
+  a power factor of 1, which the current-only meters do.
 - **Daikin Data** — every label that has been read at least once, with its
   registry and current value; refreshes every 5 s.
 - **Debug** — X10A link diagnostics per registry, WiFi, MQTT counters, device

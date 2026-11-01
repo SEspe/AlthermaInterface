@@ -51,6 +51,7 @@ static const char *TAG = "settings";
 #define KEY_PWR_LEVEL "pwr_level"
 #define KEY_POLL_S    "poll_s"
 #define KEY_PM_HOST   "pm_host"
+#define KEY_PM_IN_HOST "pm_in_host"
 #define KEY_PM_CHAN   "pm_chan"
 #define KEY_PM_ON_MA  "pm_on_ma"
 #define KEY_PM_OFF_MA "pm_off_ma"
@@ -88,6 +89,7 @@ static char s_as_number[ALT_SETTING_MAX] = "";
 // the post-stop standby band and be unresolvable by current alone. That figure
 // predates the repair of the outdoor CT and has not been reproduced since.
 static char s_pm_host[ALT_SETTING_MAX];
+static char s_pm_in_host[ALT_SETTING_MAX];
 static char s_pm_chan[ALT_SETTING_MAX] = "Outdoor";
 static int  s_pm_on_ma  = 2000;
 static int  s_pm_off_ma = 1500;
@@ -154,6 +156,7 @@ esp_err_t alt_settings_init(void)
     load_str(h, KEY_IP_MASK,   s_ip_mask, sizeof(s_ip_mask));
     load_str(h, KEY_IP_DNS,    s_ip_dns,  sizeof(s_ip_dns));
     load_str(h, KEY_PM_HOST,   s_pm_host, sizeof(s_pm_host));
+    load_str(h, KEY_PM_IN_HOST, s_pm_in_host, sizeof(s_pm_in_host));
     load_str(h, KEY_PM_CHAN,   s_pm_chan, sizeof(s_pm_chan));
     {
         int32_t v;
@@ -279,6 +282,7 @@ esp_err_t alt_settings_set_ip(bool use_static, const char *addr, const char *gw,
 }
 
 const char *alt_settings_pm_host(void)    { return s_pm_host; }
+
 const char *alt_settings_pm_channel(void) { return s_pm_chan; }
 float alt_settings_pm_on_amps(void)       { return s_pm_on_ma  / 1000.0f; }
 float alt_settings_pm_off_amps(void)      { return s_pm_off_ma / 1000.0f; }
@@ -331,6 +335,29 @@ esp_err_t alt_settings_set_powermeter(const char *host, const char *channel,
     if (err == ESP_OK) err = nvs_set_str(h, KEY_PM_CHAN, s_pm_chan);
     if (err == ESP_OK) err = nvs_set_i32(h, KEY_PM_ON_MA,  s_pm_on_ma);
     if (err == ESP_OK) err = nvs_set_i32(h, KEY_PM_OFF_MA, s_pm_off_ma);
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
+    return err;
+}
+
+const char *alt_settings_pm_indoor_host(void) { return s_pm_in_host; }
+
+// The indoor meter is only for display (the Home page's power block); it does
+// not feed the compressor state, so it has no thresholds of its own.
+esp_err_t alt_settings_set_pm_indoor_host(const char *host)
+{
+    if (!host) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    strlcpy(s_pm_in_host, host, sizeof(s_pm_in_host));
+    normalise_host(s_pm_in_host, sizeof(s_pm_in_host));
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = nvs_set_str(h, KEY_PM_IN_HOST, s_pm_in_host);
     if (err == ESP_OK) err = nvs_commit(h);
     nvs_close(h);
     return err;

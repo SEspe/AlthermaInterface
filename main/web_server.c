@@ -75,16 +75,85 @@ static const char PAGE[] =
 ".msg.err{color:#fc8181}"
 ".hint{color:#5c6472;font-size:12px;margin-top:6px}"
 "progress{width:100%;max-width:380px;height:6px;margin-top:12px}"
+".schem{width:100%;max-width:720px;display:block}"
+".schem text{font-family:system-ui,sans-serif;fill:#e6e6e6}"
+".schem .tl{fill:#8b93a1;font-size:13px}"
+".schem .tv{fill:#fff;font-size:15px;font-variant-numeric:tabular-nums}"
+".gauge{position:relative;height:14px;background:#262b34;border-radius:7px;margin:8px 0 4px;max-width:720px}"
+".gauge .fill{position:absolute;left:0;top:0;bottom:0;background:#5ec8f2;border-radius:7px}"
+".gauge .mk{position:absolute;top:-4px;bottom:-4px;width:2px;background:#f6ad55}"
+".kpi{display:flex;flex-wrap:wrap;gap:10px;margin:0 0 16px}"
+".kpi div{background:#1c1f26;border:1px solid #2a2f39;border-radius:6px;padding:8px 12px;min-width:120px}"
+".kpi b{display:block;font-size:18px;font-weight:600;font-variant-numeric:tabular-nums}"
+".kpi span{font-size:12px;color:#8b93a1}"
 "</style></head><body>"
 "<header><h1>AlthermaInterface<span id='hv'></span></h1></header>"
 "<nav>"
-"<button class='on' onclick='tab(0,this)'>Daikin Data</button>"
-"<button onclick='tab(1,this)'>Debug</button>"
-"<button onclick='tab(2,this)'>Config</button>"
-"<button onclick='tab(3,this)'>OTA</button>"
+"<button class='on' onclick='tab(0,this)'>Home</button>"
+"<button onclick='tab(1,this)'>Daikin Data</button>"
+"<button onclick='tab(2,this)'>Debug</button>"
+"<button onclick='tab(3,this)'>Config</button>"
+"<button onclick='tab(4,this)'>OTA</button>"
 "</nav><main>"
 
-"<section class='on'><table><thead><tr><th>Reg</th><th>Value</th>"
+"<section class='on'>"
+"<svg class='schem' viewBox='0 0 640 360' role='img' aria-label='Heat pump circuits with live readings'>"
+"<rect x='20' y='40' width='150' height='240' rx='14' fill='#1c1f26' stroke='#333a46'/>"
+"<text class='tl' x='95' y='66' text-anchor='middle'>Outdoor unit</text>"
+"<circle cx='95' cy='130' r='34' fill='none' stroke='#333a46' stroke-width='6'/>"
+"<rect id='hCompBox' x='50' y='190' width='90' height='48' rx='10' fill='#2d3748'/>"
+"<text class='tv' id='hComp' x='95' y='220' text-anchor='middle'>&ndash;</text>"
+"<text class='tl' x='95' y='262' text-anchor='middle'>Compressor</text>"
+"<path d='M170 160H270M170 230H270' stroke='#e0703c' stroke-width='6' fill='none'/>"
+"<rect x='270' y='100' width='100' height='190' rx='10' fill='#1c1f26' stroke='#333a46'/>"
+"<text class='tl' x='320' y='88' text-anchor='middle'>Heat exchanger</text>"
+"<text class='tl' x='178' y='146'>Refrigerant</text>"
+"<text class='tv' id='hRefr' x='178' y='190'>&ndash;</text>"
+"<path d='M370 110H600' stroke='#5ec8f2' stroke-width='6' fill='none'/>"
+"<path d='M600 250H370' stroke='#5ec8f2' stroke-width='6' fill='none'/>"
+"<text class='tl' x='470' y='98' text-anchor='middle'>To heating</text>"
+"<text class='tv' id='hOutlet' x='470' y='134' text-anchor='middle'>&ndash;</text>"
+"<text class='tl' x='470' y='278' text-anchor='middle'>From heating</text>"
+"<text class='tv' id='hInlet' x='470' y='240' text-anchor='middle'>&ndash;</text>"
+"<rect x='500' y='288' width='110' height='52' rx='12' fill='#1c1f26' stroke='#333a46'/>"
+"<text class='tl' x='555' y='306' text-anchor='middle'>DHW tank</text>"
+"<text class='tv' id='hTank' x='555' y='330' text-anchor='middle'>&ndash;</text>"
+"<text class='tl' x='20' y='318'>Mode</text>"
+"<text class='tv' id='hMode' x='20' y='342'>&ndash;</text>"
+"<text class='tl' x='200' y='318'>Circulation pump</text>"
+"<text class='tv' id='hPump' x='200' y='342'>&ndash;</text>"
+"<text class='tl' x='380' y='318'>Backup heater</text>"
+"<text class='tv' id='hHeater' x='380' y='342'>&ndash;</text>"
+"</svg>"
+"<p class='hint'>Schematic: the layout is simplified, the readings are live "
+"(refreshed every 5 s from the same values as the Daikin Data tab).</p>"
+
+"<div class='kpi'>"
+"<div><b id='kMode'>&ndash;</b><span>Mode</span></div>"
+"<div><b id='kComp'>&ndash;</b><span id='kCompSrc'>Compressor</span></div>"
+"<div><b id='kAmps'>&ndash;</b><span>Outdoor current</span></div>"
+"<div><b id='kMqtt'>&ndash;</b><span>MQTT</span></div>"
+"<div><b id='kUp'>&ndash;</b><span>Uptime</span></div>"
+"</div>"
+"<p class='hint'>Outdoor current on a 0&ndash;8 A scale. The orange marks show "
+"the thresholds: the compressor counts as on at or above the first, and off below "
+"the second.</p>"
+"<div class='gauge'><div class='fill' id='gFill' style='width:0'></div>"
+"<div class='mk' id='gOn' style='left:0'></div><div class='mk' id='gOff' style='left:0'></div></div>"
+"<h3 style='font-size:13px;color:#8b93a1;font-weight:500;margin:26px 0 8px'>POWER</h3>"
+"<table style='max-width:720px'><thead><tr><th>Meter</th><th class='v'>Current</th>"
+"<th class='v'>Power</th><th class='v'>Energy</th></tr></thead><tbody>"
+"<tr><td>Outdoor</td><td class='v' id='pOA'>&ndash;</td><td class='v' id='pOW'>&ndash;</td><td class='v' id='pOK'>&ndash;</td></tr>"
+"<tr><td>Indoor</td><td class='v' id='pIA'>&ndash;</td><td class='v' id='pIW'>&ndash;</td><td class='v' id='pIK'>&ndash;</td></tr>"
+"</tbody></table>"
+"<p class='hint' id='pNote'></p>"
+"<p class='hint'>Energy is the meter's own running total since it was first "
+"powered, not since today. Current lists each phase channel.</p>"
+"<p class='hint' id='hMsg'></p>"
+
+"</section>"
+
+"<section><table><thead><tr><th>Reg</th><th>Value</th>"
 "<th class='v'>Reading</th><th class='v'>Corresponds to</th>"
 "<th class='v'>Factor (counts/&deg;C)</th></tr>"
 "</thead><tbody id='vals'><tr><td colspan='5'>loading...</td></tr></tbody></table>"
@@ -261,6 +330,7 @@ static const char PAGE[] =
 "near -61 dBm; below about -75 dBm, leave transmit power alone.</p>"
 "<h3 style='font-size:13px;color:#8b93a1;font-weight:500;margin:26px 0 8px'>"
 "COMPRESSOR PROBE</h3>"
+"<label>Indoor PowerMeter host or IP (display only)</label><input id='pmih' placeholder='blank = not shown on the Home page'>"
 "<label>PowerMeter host or IP</label><input id='pmh' placeholder='blank = use water temperatures'>"
 "<label>Channel label</label><input id='pmc'>"
 "<div style='display:flex;gap:10px'>"
@@ -339,6 +409,51 @@ static const char PAGE[] =
 "try{await fetch('/api/reboot',{method:'POST'});"
 "e.textContent='reboot requested; reconnecting...';}"
 "catch(x){e.textContent='reboot requested; reconnecting...';}}"
+"var HOME_LABELS={'Refrig. Temp. liquid side(C)':['hRefr',1],'Inlet water temp.(C)':['hInlet',1],"
+"'Outlet Water Temp.(C)':['hOutlet',1],'DHW tank temp.(C)':['hTank',1],'Operation Mode':['hMode',0],"
+"'Circulation pump':['hPump',0],'Electric heater contactor':['hHeater',0]};"
+"function homeTxt(id,t){var e=document.getElementById(id);if(e)e.textContent=t;}"
+"function homePower(p,m){"
+"if(!m){homeTxt(p+'A','not set');homeTxt(p+'W','–');homeTxt(p+'K','–');return [];}"
+"homeTxt(p+'A',m.ch.map(function(c){return (c.i||0).toFixed(2);}).join(' / ')+' A');"
+"homeTxt(p+'W',Math.round(m.p||0)+' W');"
+"homeTxt(p+'K',((m.ein||0)/1000).toFixed(1)+' kWh');"
+"var n=[];"
+"if(m.uncal)n.push(m.id+': uncalibrated');"
+"if(m.degraded)n.push(m.id+': degraded');"
+"if(m.ch.some(function(c){return c.assumed;}))n.push(m.id+': power factor assumed 1, no voltage measured');"
+"return n;}"
+"function homeUptime(s){var h=Math.floor(s/3600),m=Math.floor(s%3600/60);return h?h+' h '+m+' min':m+' min';}"
+"async function homeRefresh(){"
+"try{"
+"var v=await (await fetch('/api/values')).json();"
+"var s=await (await fetch('/api/status')).json();"
+"var running=false;"
+"v.values.forEach(function(x){"
+"if(x.label==='Compressor')running=x.value.trim()==='ON';"
+"var m=HOME_LABELS[x.label];if(!m)return;"
+"var t=m[1]?(Math.round(parseFloat(x.value)*10)/10).toFixed(1)+' °C':x.value.trim();"
+"homeTxt(m[0],t);});"
+"var box=document.getElementById('hCompBox');"
+"if(box)box.setAttribute('fill',running?'#2f855a':'#2d3748');"
+"homeTxt('hComp',running?'ON':'OFF');"
+"homeTxt('kComp',running?'Running':'Off');"
+"homeTxt('kCompSrc','Compressor (source: '+s.compSrc+')');"
+"homeTxt('kMode',document.getElementById('hMode').textContent);"
+"homeTxt('kMqtt',s.mqtt?'connected':'offline');"
+"homeTxt('kUp',homeUptime(s.uptime));"
+"if(s.pmOn){"
+"var a=s.pmAmps;"
+"homeTxt('kAmps',a.toFixed(2)+' A');"
+"document.getElementById('gFill').style.width=Math.min(a/8,1)*100+'%';"
+"document.getElementById('gOn').style.left=Math.min(s.pmOnA/8,1)*100+'%';"
+"document.getElementById('gOff').style.left=Math.min(s.pmOffA/8,1)*100+'%';"
+"}else{homeTxt('kAmps','no PowerMeter');}"
+"var pw=await (await fetch('/api/power')).json();"
+"var notes=homePower('pO',pw.outdoor).concat(homePower('pI',pw.indoor));"
+"homeTxt('pNote',notes.length?'Notes: '+notes.join('; '):'');"
+"homeTxt('hMsg','');"
+"}catch(e){homeTxt('hMsg','Could not read the device: '+e);}}"
 "function tab(i,b){"
 "document.querySelectorAll('section').forEach((s,n)=>s.className=n==i?'on':'');"
 "document.querySelectorAll('nav button').forEach(x=>x.className='');b.className='on';}"
@@ -484,6 +599,7 @@ static const char PAGE[] =
 "document.getElementById('asn').value=c.asNumber||'';"
 "document.getElementById('asm').textContent=c.asModels.length?'Models this AS number points to: '+c.asModels.join('; '):(c.asNumber?'No model matches this AS number.':'Not set: the model is picked by the firmware, not by the label.');"
 "document.getElementById('pmh').value=c.pmHost||'';"
+"document.getElementById('pmih').value=c.pmIndoorHost||'';"
 "document.getElementById('pmc').value=c.pmChannel||'';"
 "document.getElementById('pmon').value=c.pmOnAmps;"
 "document.getElementById('pmoff').value=c.pmOffAmps;"
@@ -544,6 +660,7 @@ static const char PAGE[] =
 "rxPin:document.getElementById('rxp').value,txPin:document.getElementById('txp').value,"
 "repo:document.getElementById('ghr').value,"
 "asNumber:document.getElementById('asn').value,"
+"pmIndoorHost:document.getElementById('pmih').value,"
 "pmHost:document.getElementById('pmh').value,"
 "pmChannel:document.getElementById('pmc').value,"
 "pmOnAmps:document.getElementById('pmon').value,"
@@ -563,7 +680,7 @@ static const char PAGE[] =
 "else{m.className='msg err';m.textContent='Failed: '+x.responseText;}};"
 "x.onerror=()=>{m.className='msg err';m.textContent='Upload failed.';};"
 "x.setRequestHeader('Content-Type','application/octet-stream');x.send(f);}"
-"internals().then(load);cfg();wcfg();setInterval(load,5000);"
+"internals().then(load);cfg();wcfg();setInterval(load,5000);homeRefresh();setInterval(homeRefresh,5000);"
 "</script></body></html>";
 
 static esp_err_t root_get(httpd_req_t *req)
@@ -640,6 +757,46 @@ static esp_err_t status_get(httpd_req_t *req)
              alt_settings_pm_on_amps(), alt_settings_pm_off_amps(),
              alt_derived_compressor_source());
 
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_send(req, body, HTTPD_RESP_USE_STRLEN);
+}
+
+// Raw /api/values JSON of one PowerMeter, or "null" when no host is set or it
+// does not answer with a complete object. The browser cannot call the meters
+// itself (another origin, no CORS), so the device relays them for the Home page.
+static void pm_fetch_raw(const char *host, char *out, size_t len)
+{
+    size_t n = 0;
+    if (host && host[0]) {
+        char url[96];
+        snprintf(url, sizeof(url), "http://%s/api/values", host);
+        esp_http_client_config_t cfg = {.url = url, .timeout_ms = 2000};
+        esp_http_client_handle_t c = esp_http_client_init(&cfg);
+        if (c && esp_http_client_open(c, 0) == ESP_OK &&
+            esp_http_client_fetch_headers(c) >= 0 &&
+            esp_http_client_get_status_code(c) == 200) {
+            int r = esp_http_client_read_response(c, out, len - 1);
+            n = r > 0 ? (size_t)r : 0;
+        }
+        if (c) {
+            esp_http_client_close(c);
+            esp_http_client_cleanup(c);
+        }
+    }
+    out[n] = '\0';
+    if (n < 2 || out[0] != '{' || out[n - 1] != '}') {
+        snprintf(out, len, "null");
+    }
+}
+
+static esp_err_t power_get(httpd_req_t *req)
+{
+    // Static: the HTTP task runs one handler at a time, and two meter replies
+    // would not fit comfortably on its stack.
+    static char outdoor[1024], indoor[1024], body[2176];
+    pm_fetch_raw(alt_settings_pm_host(), outdoor, sizeof(outdoor));
+    pm_fetch_raw(alt_settings_pm_indoor_host(), indoor, sizeof(indoor));
+    snprintf(body, sizeof(body), "{\"outdoor\":%s,\"indoor\":%s}", outdoor, indoor);
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_send(req, body, HTTPD_RESP_USE_STRLEN);
 }
@@ -837,6 +994,7 @@ static esp_err_t config_get(httpd_req_t *req)
              "{\"uri\":\"%s\",\"user\":\"%s\",\"passSet\":%s,"
              "\"rxPin\":%d,\"txPin\":%d,\"repo\":\"%s\","
              "\"asNumber\":\"%s\",\"asModels\":[%s],"
+             "\"pmIndoorHost\":\"%s\","
              "\"pmHost\":\"%s\",\"pmChannel\":\"%s\","
              "\"pmOnAmps\":%.2f,\"pmOffAmps\":%.2f,"
              "\"powerLevel\":%d,\"powerLevels\":[",
@@ -844,6 +1002,7 @@ static esp_err_t config_get(httpd_req_t *req)
              alt_settings_mqtt_pass_set() ? "true" : "false",
              alt_settings_rx_pin(), alt_settings_tx_pin(), alt_settings_gh_repo(),
              alt_settings_as_number(), asModels,
+             alt_settings_pm_indoor_host(),
              alt_settings_pm_host(), alt_settings_pm_channel(),
              alt_settings_pm_on_amps(), alt_settings_pm_off_amps(),
              alt_settings_power_level());
@@ -962,7 +1121,8 @@ static esp_err_t reboot_post(httpd_req_t *req)
 
 static esp_err_t config_post(httpd_req_t *req)
 {
-    char body[512];
+    // The Config tab posts about fifteen fields; 512 bytes no longer leaves room.
+    char body[768];
     int len = req->content_len < (int)sizeof(body) - 1 ? req->content_len : (int)sizeof(body) - 1;
     int got = httpd_req_recv(req, body, len);
     if (got <= 0) {
@@ -999,6 +1159,12 @@ static esp_err_t config_post(httpd_req_t *req)
             return ESP_FAIL;
         }
         alt_settings_set_as_number(asnum);
+    }
+
+    // Indoor PowerMeter, display only. Present-but-empty clears it.
+    char pmin[ALT_SETTING_MAX] = {0};
+    if (json_field(body, "pmIndoorHost", pmin, sizeof(pmin))) {
+        alt_settings_set_pm_indoor_host(pmin);
     }
 
     // Compressor power source. An EMPTY pmHost is meaningful here and not
@@ -1374,6 +1540,7 @@ esp_err_t alt_web_start(void)
         {.uri = "/",            .method = HTTP_GET,  .handler = root_get},
         {.uri = "/api/status",  .method = HTTP_GET,  .handler = status_get},
         {.uri = "/api/values",  .method = HTTP_GET,  .handler = values_get},
+        {.uri = "/api/power",   .method = HTTP_GET,  .handler = power_get},
         {.uri = "/api/x10a",    .method = HTTP_GET,  .handler = x10a_get},
         {.uri = "/api/wifiscan",.method = HTTP_GET,  .handler = wifiscan_get},
         {.uri = "/api/wificfg", .method = HTTP_GET,  .handler = wificfg_get},
