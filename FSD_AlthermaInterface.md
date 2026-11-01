@@ -1,7 +1,7 @@
 # FSD — AlthermaInterface
 
-**Version:** 1.30
-**Firmware:** 1.17.0
+**Version:** 1.31
+**Firmware:** 1.18.0
 **Target:** ESP32 (ESP32-WROOM devkit, 4 MB flash), ESP-IDF v6.0.1
 **Heat pump:** Daikin Altherma LT split hydrobox **EKHBH / EKHBX 008BA** —
 **protocol S**, ROTEX value mapping
@@ -318,10 +318,15 @@ Served by the device itself on port 80 (`main/web_server.c`), five tabs:
 
 - **Home** — the first tab, refreshed every 5 s. A schematic of the heat pump:
   the outdoor unit with its compressor state, the refrigerant and water
-  connections to the heat exchanger, the heating flow and return temperatures,
-  the DHW tank, and the mode, circulation pump and backup heater. Its positions
-  are simplified and say so. Below it, a row of cards (mode, compressor and its
-  source, outdoor current, MQTT state, uptime) and a current gauge on a 0 to 8 A
+  connections to the heat exchanger, the leaving and return temperatures with
+  the curve setpoint beside the leaving water, the DHW tank, the 3-way valve,
+  the circulation pump and the backup heater. Values the unit does not send
+  over X10A (outside air, room temperature) and quantities this unit does not
+  measure (flow, water pressure) are shown as such, not left blank. Its positions
+  are simplified and say so. Beside it, a card of the current state (mode,
+  compressor and outdoor current, water circuit Δt, curve setpoint, DHW
+  priority, health), and below it a row of four cards (Wi-Fi, device address,
+  Home Assistant connection, uptime). Then a current gauge on a 0 to 8 A
   scale, with the compressor on and off thresholds marked. Then a **power**
   table for the outdoor and indoor PowerMeters: current per phase channel, power,
   and the meter's energy total. The meters are read through the device at
