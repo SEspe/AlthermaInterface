@@ -1,0 +1,63 @@
+name: Release binary
+
+# Builds the firmware for a release tag and attaches the OTA image to that
+# GitHub release, so the .bin a device is updated with is the one the tag
+# describes. Runs on every v* tag push, or by hand for an existing tag.
+#
+# The image is the same AlthermaInterface.bin the device accepts at
+# POST /ota/upload and that the web flasher serves from GitHub Pages.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag to attach the binary to, e.g. v1.18.0'
+        required: true
+
+env:
+  IDF_VERSION: v6.0.1
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-attach:
+    name: Build and attach the firmware image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Build with ESP-IDF
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: ${{ env.IDF_VERSION }}
+          target: esp32
+          path: .
+          command: idf.py build
+
+      - name: Name the image after the release
+        run: |
+          TAG="${{ inputs.tag || github.ref_name }}"
+          VER=$(sed -n 's/.*FIRMWARE_VERSION "\([^"]*\)".*/\1/p' main/version.h)
+          test -n "$VER" || { echo "::error::cannot read FIRMWARE_VERSION"; exit 1; }
+          # A tag and the code it points at must agree, or the attached image
+          # would not be the release it is named after.
+          if [ "$TAG" != "v$VER" ]; then
+            echo "::error::tag $TAG does not match main/version.h ($VER)"
+            exit 1
+          fi
+          cp build/AlthermaInterface.bin "AlthermaInterface-$VER.bin"
+          sha256sum "AlthermaInterface-$VER.bin" > "AlthermaInterface-$VER.bin.sha256"
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ inputs.tag || github.ref_name }}"
+          # Create the release if the tag has none yet; otherwise add to it.
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --notes "Firmware image attached by the release workflow."
+          gh release upload "$TAG" AlthermaInterface-*.bin AlthermaInterface-*.bin.sha256 --clobber
