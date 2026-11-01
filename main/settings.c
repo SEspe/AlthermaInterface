@@ -52,6 +52,7 @@ static const char *TAG = "settings";
 #define KEY_POLL_S    "poll_s"
 #define KEY_PM_HOST   "pm_host"
 #define KEY_PM_IN_HOST "pm_in_host"
+#define KEY_EXT_TOPICS "ext_topics"
 #define KEY_PM_CHAN   "pm_chan"
 #define KEY_PM_ON_MA  "pm_on_ma"
 #define KEY_PM_OFF_MA "pm_off_ma"
@@ -90,6 +91,7 @@ static char s_as_number[ALT_SETTING_MAX] = "";
 // predates the repair of the outdoor CT and has not been reproduced since.
 static char s_pm_host[ALT_SETTING_MAX];
 static char s_pm_in_host[ALT_SETTING_MAX];
+static char s_ext_topics[ALT_EXT_TEXT_MAX];
 static char s_pm_chan[ALT_SETTING_MAX] = "Outdoor";
 static int  s_pm_on_ma  = 2000;
 static int  s_pm_off_ma = 1500;
@@ -157,6 +159,7 @@ esp_err_t alt_settings_init(void)
     load_str(h, KEY_IP_DNS,    s_ip_dns,  sizeof(s_ip_dns));
     load_str(h, KEY_PM_HOST,   s_pm_host, sizeof(s_pm_host));
     load_str(h, KEY_PM_IN_HOST, s_pm_in_host, sizeof(s_pm_in_host));
+    load_str(h, KEY_EXT_TOPICS, s_ext_topics, sizeof(s_ext_topics));
     load_str(h, KEY_PM_CHAN,   s_pm_chan, sizeof(s_pm_chan));
     {
         int32_t v;
@@ -358,6 +361,26 @@ esp_err_t alt_settings_set_pm_indoor_host(const char *host)
         return err;
     }
     err = nvs_set_str(h, KEY_PM_IN_HOST, s_pm_in_host);
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
+    return err;
+}
+
+const char *alt_settings_ext_topics(void) { return s_ext_topics; }
+
+esp_err_t alt_settings_set_ext_topics(const char *text)
+{
+    if (!text || strlen(text) >= sizeof(s_ext_topics)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    strlcpy(s_ext_topics, text, sizeof(s_ext_topics));
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = nvs_set_str(h, KEY_EXT_TOPICS, s_ext_topics);
     if (err == ESP_OK) err = nvs_commit(h);
     nvs_close(h);
     return err;

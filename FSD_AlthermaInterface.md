@@ -1,7 +1,7 @@
 # FSD — AlthermaInterface
 
-**Version:** 1.31
-**Firmware:** 1.18.0
+**Version:** 1.34
+**Firmware:** 1.20.0
 **Target:** ESP32 (ESP32-WROOM devkit, 4 MB flash), ESP-IDF v6.0.1
 **Heat pump:** Daikin Altherma LT split hydrobox **EKHBH / EKHBX 008BA** —
 **protocol S**, ROTEX value mapping
@@ -37,8 +37,11 @@ Daikin models outside the upstream definition set.
 and safety-relay outputs are not ported. This machine is controlled by an
 existing xComfort installation, so its thermostat contact is already driven;
 a second relay across the same input would put two systems in contention. The
-firmware is therefore **publish-only** - it subscribes to no MQTT topic and
-drives no output. See docs/PORTING.md phase 5.
+firmware is therefore **publish-only** for control: it drives no output and
+writes no setting to the heat pump. Its only subscriptions are read-only: it
+listens to the external MQTT topics listed on the Config tab (§7, §8), and
+nothing it receives changes what it does to the heat pump. See
+docs/PORTING.md phase 5.
 
 ## 3. Hardware interface
 
@@ -263,6 +266,13 @@ taken to be the weather-dependent leaving-water target: the unit's display
 shows the same figure in curve mode. The firmware does not write it or act on
 it.
 
+External sensors. The device subscribes to the topics listed on the Config tab
+(§8), each one published by another device on the same broker (for example an
+ESPEasy node). It keeps the latest value of each and when it arrived, and shows
+them on the Home page. A value is text as received, with any character that
+would need escaping in JSON replaced by `?`. Nothing from these topics is
+republished, and none of them is mixed into the heat pump's own values.
+
 Deviation from upstream: TLS connections verify the broker via the IDF
 certificate bundle rather than `setInsecure()`.
 
@@ -296,6 +306,12 @@ returns 400). An empty value clears it. The firmware never reads the AS number
 from the heat pump: register `0x63`, which upstream uses for it, does not answer
 on this unit.
 
+The **external sensor** list is one entry per line on the Config tab, each
+`label | topic | unit`. It is saved as one text setting and applied at the next
+boot. Up to 16 entries; each topic must match exactly, with no `+` or `#`
+wildcards. A malformed list is refused whole and nothing is saved. Clearing the
+box removes every entry.
+
 The **indoor PowerMeter** host is set the same way. It is for display only: the
 Home page shows its current and energy next to the outdoor meter's. It does not
 feed the compressor state, so it has no thresholds.
@@ -326,7 +342,9 @@ Served by the device itself on port 80 (`main/web_server.c`), five tabs:
   are simplified and say so. Beside it, a card of the current state (mode,
   compressor and outdoor current, water circuit Δt, curve setpoint, DHW
   priority, health), and below it a row of four cards (Wi-Fi, device address,
-  Home Assistant connection, uptime). Then a current gauge on a 0 to 8 A
+  Home Assistant connection, uptime). Below those, the external sensors (§7),
+  each in a shaded, dashed box with its age, so they read as coming from
+  outside the heat pump. Then a current gauge on a 0 to 8 A
   scale, with the compressor on and off thresholds marked. Then a **power**
   table for the outdoor and indoor PowerMeters: current per phase channel, power,
   and the meter's energy total. The meters are read through the device at

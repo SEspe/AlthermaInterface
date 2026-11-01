@@ -28,8 +28,9 @@ hours with zero CRC errors, and the values reach Home Assistant with no YAML.
 - **OTA with rollback** — dual app slots; an image that fails to boot is reverted
   automatically, so a bad upload cannot brick a unit sealed inside a heat pump.
 
-**Read-only by design.** It publishes and never subscribes, and drives no GPIO,
-so it cannot command the heat pump. See `FSD_AlthermaInterface.md` §2.
+**Read-only by design.** It publishes, and subscribes only to the external sensor
+topics listed on its Config tab, read-only. It drives no GPIO and cannot command
+the heat pump. See `FSD_AlthermaInterface.md` §2.
 
 ## A find, for anyone else on protocol S
 

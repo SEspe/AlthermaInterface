@@ -85,6 +85,12 @@ const char *alt_settings_pm_host(void);     // "" = disabled
 // Indoor PowerMeter, shown on the Home page only ("" = not configured).
 const char *alt_settings_pm_indoor_host(void);
 esp_err_t alt_settings_set_pm_indoor_host(const char *host);
+
+// External MQTT sensors (external.h): "label|topic|unit" entries separated by
+// ';'. Longer text is refused, not truncated.
+#define ALT_EXT_TEXT_MAX 1024
+const char *alt_settings_ext_topics(void);
+esp_err_t alt_settings_set_ext_topics(const char *text);
 const char *alt_settings_pm_channel(void);
 float alt_settings_pm_on_amps(void);
 float alt_settings_pm_off_amps(void);

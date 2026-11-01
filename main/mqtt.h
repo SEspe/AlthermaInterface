@@ -29,6 +29,9 @@ esp_err_t alt_mqtt_publish_values(void);
 void alt_mqtt_stats(uint32_t *ok, uint32_t *fail, uint32_t *connects,
                     uint32_t *disconnects, int64_t *last_pub_ms);
 
+// Subscribes to one topic on the live client. False when not connected.
+bool alt_mqtt_subscribe(const char *topic);
+
 // Mirrors ESP_LOGx output to espaltherma/log, as upstream's MQTTSerial does.
 // Call after alt_mqtt_start().
 void alt_mqtt_log_redirect(void);

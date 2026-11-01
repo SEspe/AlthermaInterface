@@ -23,6 +23,7 @@
 
 #include "converters.h"
 #include "derived.h"
+#include "external.h"
 #include "homeassistant.h"
 #include "settings.h"
 #include "wifi.h"
@@ -53,6 +54,7 @@ static void on_mqtt_event(void *arg, esp_event_base_t base, int32_t id, void *da
     case MQTT_EVENT_CONNECTED: {
         s_connected = true;
         ESP_LOGI(TAG, "connected to %s", alt_settings_mqtt_uri());
+        alt_ext_subscribe_all();
         // Retained, so a subscriber that connects later still learns we are up.
         s_connects++;
         esp_mqtt_client_publish(s_client, ALT_MQTT_TOPIC_LWT, "Online", 0, 0, 1);
@@ -74,6 +76,14 @@ static void on_mqtt_event(void *arg, esp_event_base_t base, int32_t id, void *da
         break;
     }
 
+    case MQTT_EVENT_DATA:
+        // Only whole messages are used; the external values are short, so a
+        // fragmented message is skipped rather than reassembled.
+        if (e && e->current_data_offset == 0 && e->total_data_len == e->data_len) {
+            alt_ext_on_data(e->topic, (size_t)e->topic_len, e->data, (size_t)e->data_len);
+        }
+        break;
+
     case MQTT_EVENT_DISCONNECTED:
         s_connected = false;
         s_disconnects++;
@@ -93,6 +103,14 @@ static void on_mqtt_event(void *arg, esp_event_base_t base, int32_t id, void *da
     }
 }
 
+bool alt_mqtt_subscribe(const char *topic)
+{
+    if (!s_client || !s_connected || !topic) {
+        return false;
+    }
+    return esp_mqtt_client_subscribe(s_client, topic, 0) >= 0;
+}
+
 esp_err_t alt_mqtt_start(void)
 {
     // A device flashed from a public release has no secrets.h and no NVS yet,
@@ -103,6 +121,8 @@ esp_err_t alt_mqtt_start(void)
     // flashed board before its provisioning page could be served.
     //
     // Not being configured yet is the normal first-boot state, not a failure.
+    alt_ext_load();
+
     if (strlen(alt_settings_mqtt_uri()) == 0) {
         ESP_LOGW(TAG, "no broker configured; MQTT stays off until one is saved");
         return ESP_OK;

@@ -31,6 +31,7 @@
 #include "converters.h"
 #include "compressor_power.h"
 #include "derived.h"
+#include "external.h"
 #include "mqtt.h"
 #include "esp_chip_info.h"
 #include "esp_flash.h"
@@ -90,6 +91,11 @@ static const char PAGE[] =
 ".htile b{display:block;font-size:15px;font-weight:600;margin-top:4px;overflow-wrap:anywhere}"
 ".htile small{display:block;font-size:12px;color:#8b93a1;overflow-wrap:anywhere}"
 "@media(max-width:720px){.hgrid{grid-template-columns:1fr}.htiles{grid-template-columns:repeat(2,minmax(0,1fr))}}"
+".extgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px}"
+".ext{background:repeating-linear-gradient(135deg,#1b2431 0 8px,#202b3a 8px 16px);border:1px dashed #4a5a70;border-radius:10px;padding:10px 12px;overflow-wrap:anywhere}"
+".ext span{display:block;font-size:12px;color:#9fb3c8}"
+".ext b{display:block;font-size:20px;font-weight:600;margin-top:4px;font-variant-numeric:tabular-nums}"
+".ext small{display:block;font-size:11px;color:#6b7c93;margin-top:4px}"
 ".gauge{position:relative;height:14px;background:#262b34;border-radius:7px;margin:8px 0 4px;max-width:720px}"
 ".gauge .fill{position:absolute;left:0;top:0;bottom:0;background:#5ec8f2;border-radius:7px}"
 ".gauge .mk{position:absolute;top:-4px;bottom:-4px;width:2px;background:#f6ad55}"
@@ -177,6 +183,8 @@ static const char PAGE[] =
 "<div class='htile'><span>Home Assistant</span><b id='tMqtt'>&ndash;</b><small id='tBroker'></small></div>"
 "<div class='htile'><span>Running for</span><b id='tUp'>&ndash;</b><small>since last boot</small></div>"
 "</div>"
+"<div class='hk' style='margin:16px 0 8px'>External sensors (MQTT, from other devices, not the heat pump)</div>"
+"<div class='extgrid' id='extGrid'><div class='hsub'>None configured. Add them on the Config tab.</div></div>"
 "<div class='hcard' style='margin-top:14px'>"
 "<div class='hk' style='margin-top:0'>Outdoor current</div>"
 "<div class='gauge'><div class='fill' id='gFill' style='width:0'></div>"
@@ -369,6 +377,11 @@ static const char PAGE[] =
 "means the far end probably hears us just as weakly. The reference unit sits "
 "near -61 dBm; below about -75 dBm, leave transmit power alone.</p>"
 "<h3 style='font-size:13px;color:#8b93a1;font-weight:500;margin:26px 0 8px'>"
+"EXTERNAL SENSORS (MQTT)</h3>"
+"<label>One per line: label | topic | unit. Values published by other devices on the same broker, shown shaded on the Home page. Topics must be exact.</label>"
+"<textarea id='ext' rows='6' style='width:100%;max-width:720px;box-sizing:border-box;background:#1c1f26;border:1px solid #333a46;border-radius:4px;color:#e6e6e6;font-family:monospace;font-size:13px;padding:8px'></textarea>"
+"<p class='hint' id='extMsg'></p>"
+"<h3 style='font-size:13px;color:#8b93a1;font-weight:500;margin:26px 0 8px'>"
 "COMPRESSOR PROBE</h3>"
 "<label>Indoor PowerMeter host or IP (display only)</label><input id='pmih' placeholder='blank = not shown on the Home page'>"
 "<label>PowerMeter host or IP</label><input id='pmh' placeholder='blank = use water temperatures'>"
@@ -504,6 +517,14 @@ static const char PAGE[] =
 "homeTxt('pNote',notes.length?'Notes: '+notes.join('; '):'');"
 "homeTxt('hMsg','');"
 "}catch(e){homeTxt('hMsg','Could not read the device: '+e);}}"
+"async function extRefresh(){"
+"try{var e=await (await fetch('/api/external')).json();"
+"var g=document.getElementById('extGrid');"
+"if(!e.items.length){g.innerHTML=\"<div class='hsub'>None configured. Add them on the Config tab.</div>\";return;}"
+"g.innerHTML=e.items.map(function(x){"
+"var st=x.age<0?'no data yet':(x.age>900?'stale, '+Math.round(x.age/60)+' min old':'updated '+x.age+' s ago');"
+"return \"<div class='ext'><span>\"+esc(x.label)+\"</span><b>\"+esc(x.value||'-')+(x.value&&x.unit?' '+esc(x.unit):'')+\"</b><small>\"+esc(x.topic)+\"<br>\"+st+\"</small></div>\";}).join('');"
+"}catch(err){}}"
 "function tab(i,b){"
 "document.querySelectorAll('section').forEach((s,n)=>s.className=n==i?'on':'');"
 "document.querySelectorAll('nav button').forEach(x=>x.className='');b.className='on';}"
@@ -650,6 +671,7 @@ static const char PAGE[] =
 "document.getElementById('asm').textContent=c.asModels.length?'Models this AS number points to: '+c.asModels.join('; '):(c.asNumber?'No model matches this AS number.':'Not set: the model is picked by the firmware, not by the label.');"
 "document.getElementById('pmh').value=c.pmHost||'';"
 "document.getElementById('pmih').value=c.pmIndoorHost||'';"
+"document.getElementById('ext').value=(c.extTopics||'').split(';').join('\\n');"
 "document.getElementById('pmc').value=c.pmChannel||'';"
 "document.getElementById('pmon').value=c.pmOnAmps;"
 "document.getElementById('pmoff').value=c.pmOffAmps;"
@@ -711,6 +733,7 @@ static const char PAGE[] =
 "repo:document.getElementById('ghr').value,"
 "asNumber:document.getElementById('asn').value,"
 "pmIndoorHost:document.getElementById('pmih').value,"
+"extTopics:document.getElementById('ext').value.split('\\n').map(function(l){return l.split('|').map(function(x){return x.trim();}).join('|');}).filter(function(l){return l.length>0;}).join(';'),"
 "pmHost:document.getElementById('pmh').value,"
 "pmChannel:document.getElementById('pmc').value,"
 "pmOnAmps:document.getElementById('pmon').value,"
@@ -730,7 +753,7 @@ static const char PAGE[] =
 "else{m.className='msg err';m.textContent='Failed: '+x.responseText;}};"
 "x.onerror=()=>{m.className='msg err';m.textContent='Upload failed.';};"
 "x.setRequestHeader('Content-Type','application/octet-stream');x.send(f);}"
-"internals().then(load);cfg();wcfg();setInterval(load,5000);homeRefresh();setInterval(homeRefresh,5000);"
+"internals().then(load);cfg();wcfg();setInterval(load,5000);homeRefresh();setInterval(homeRefresh,5000);extRefresh();setInterval(extRefresh,5000);"
 "</script></body></html>";
 
 static esp_err_t root_get(httpd_req_t *req)
@@ -849,6 +872,15 @@ static esp_err_t power_get(httpd_req_t *req)
     snprintf(body, sizeof(body), "{\"outdoor\":%s,\"indoor\":%s}", outdoor, indoor);
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_send(req, body, HTTPD_RESP_USE_STRLEN);
+}
+
+static esp_err_t external_get(httpd_req_t *req)
+{
+    // Static for the same reason as power_get(): one handler runs at a time.
+    static char body[2048];
+    size_t n = alt_ext_json(body, sizeof(body));
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_send(req, body, n);
 }
 
 static esp_err_t values_get(httpd_req_t *req)
@@ -1020,9 +1052,10 @@ static esp_err_t wificfg_post(httpd_req_t *req)
 
 static esp_err_t config_get(httpd_req_t *req)
 {
-    // Large enough for the three configured strings, the AS number's candidate
-    // models and the power level table, whose descriptions are the longest part.
-    char body[2048];
+    // Large enough for the configured strings, the external sensor list (up to
+    // 1 KB), the AS number's candidate models and the power level table. Static
+    // because the HTTP task runs one handler at a time.
+    static char body[3072];
 
     // The AS number's candidates, as a JSON array of names. Empty when no AS
     // number is stored or it does not parse.
@@ -1044,7 +1077,7 @@ static esp_err_t config_get(httpd_req_t *req)
              "{\"uri\":\"%s\",\"user\":\"%s\",\"passSet\":%s,"
              "\"rxPin\":%d,\"txPin\":%d,\"repo\":\"%s\","
              "\"asNumber\":\"%s\",\"asModels\":[%s],"
-             "\"pmIndoorHost\":\"%s\","
+             "\"pmIndoorHost\":\"%s\",\"extTopics\":\"%s\","
              "\"pmHost\":\"%s\",\"pmChannel\":\"%s\","
              "\"pmOnAmps\":%.2f,\"pmOffAmps\":%.2f,"
              "\"powerLevel\":%d,\"powerLevels\":[",
@@ -1052,7 +1085,7 @@ static esp_err_t config_get(httpd_req_t *req)
              alt_settings_mqtt_pass_set() ? "true" : "false",
              alt_settings_rx_pin(), alt_settings_tx_pin(), alt_settings_gh_repo(),
              alt_settings_as_number(), asModels,
-             alt_settings_pm_indoor_host(),
+             alt_settings_pm_indoor_host(), alt_settings_ext_topics(),
              alt_settings_pm_host(), alt_settings_pm_channel(),
              alt_settings_pm_on_amps(), alt_settings_pm_off_amps(),
              alt_settings_power_level());
@@ -1171,8 +1204,9 @@ static esp_err_t reboot_post(httpd_req_t *req)
 
 static esp_err_t config_post(httpd_req_t *req)
 {
-    // The Config tab posts about fifteen fields; 512 bytes no longer leaves room.
-    char body[768];
+    // The Config tab posts about fifteen fields plus the external sensor list
+    // (up to 1 KB), so this is static rather than on the HTTP task's stack.
+    static char body[1536];
     int len = req->content_len < (int)sizeof(body) - 1 ? req->content_len : (int)sizeof(body) - 1;
     int got = httpd_req_recv(req, body, len);
     if (got <= 0) {
@@ -1215,6 +1249,18 @@ static esp_err_t config_post(httpd_req_t *req)
     char pmin[ALT_SETTING_MAX] = {0};
     if (json_field(body, "pmIndoorHost", pmin, sizeof(pmin))) {
         alt_settings_set_pm_indoor_host(pmin);
+    }
+
+    // External MQTT sensors. Present-but-empty clears the list. Refused as a
+    // whole when any entry is malformed, so nothing half-applies.
+    char ext[ALT_EXT_TEXT_MAX] = {0};
+    if (json_field(body, "extTopics", ext, sizeof(ext))) {
+        if (alt_ext_set(ext) == ESP_ERR_INVALID_ARG) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
+                                "external sensors: each line is label | topic | unit, "
+                                "topics exact (no + or #), at most 16 lines");
+            return ESP_FAIL;
+        }
     }
 
     // Compressor power source. An EMPTY pmHost is meaningful here and not
@@ -1591,6 +1637,7 @@ esp_err_t alt_web_start(void)
         {.uri = "/api/status",  .method = HTTP_GET,  .handler = status_get},
         {.uri = "/api/values",  .method = HTTP_GET,  .handler = values_get},
         {.uri = "/api/power",   .method = HTTP_GET,  .handler = power_get},
+        {.uri = "/api/external", .method = HTTP_GET, .handler = external_get},
         {.uri = "/api/x10a",    .method = HTTP_GET,  .handler = x10a_get},
         {.uri = "/api/wifiscan",.method = HTTP_GET,  .handler = wifiscan_get},
         {.uri = "/api/wificfg", .method = HTTP_GET,  .handler = wificfg_get},
